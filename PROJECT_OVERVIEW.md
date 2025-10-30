@@ -205,7 +205,7 @@ export MERIT_PROVIDER="anthropic"
 project_path: "./my-ai-app"
 api_key: "sk-ant-..."
 provider: "anthropic"
-model: "claude-3-5-sonnet-20241022"
+model: "claude-sonnet-4-5"
 max_tokens: 4096
 min_cluster_size: 2
 max_patterns: 10

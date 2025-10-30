@@ -151,6 +151,19 @@ class MeritClaudeAgent:
         
         return recommendations
 
+    def _get_bedrock_model_id(self) -> str:
+        """Map config model name to Bedrock model ID."""
+        model_mapping = {
+            "claude-sonnet-4-5": "anthropic.claude-3-5-sonnet-20241022-v1:0",
+            "claude-3-5-sonnet-20241022": "anthropic.claude-3-5-sonnet-20241022-v1:0",
+            "claude-3-5-sonnet": "anthropic.claude-3-5-sonnet-20241022-v1:0",
+            "claude-3-sonnet-20240229": "anthropic.claude-3-sonnet-20240229-v1:0",
+            "claude-3-haiku": "anthropic.claude-3-haiku-20240307-v1:0",
+        }
+        
+        # Default to 3.5 Sonnet if model not found
+        return model_mapping.get(self.model, "anthropic.claude-3-5-sonnet-20241022-v1:0")
+
     def _call_claude(self, prompt: str) -> str:
         """Call Claude API with the given prompt."""
         try:
@@ -170,8 +183,10 @@ class MeritClaudeAgent:
                     "temperature": self.config.temperature,
                 })
                 
+                # Map config model to Bedrock model ID
+                bedrock_model_id = self._get_bedrock_model_id()
                 response = self.bedrock_client.invoke_model(
-                    modelId="anthropic.claude-3-sonnet-20240229-v1:0",
+                    modelId=bedrock_model_id,
                     body=body
                 )
                 
