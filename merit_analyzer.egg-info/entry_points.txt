@@ -1,0 +1,2 @@
+[console_scripts]
+merit-analyze = merit_analyzer.cli:main
