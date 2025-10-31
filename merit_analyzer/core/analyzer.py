@@ -101,6 +101,10 @@ class MeritAnalyzer:
         # Cache for discovered architecture
         self._architecture_cache: Optional[Dict[str, Any]] = None
         self._scan_results_cache: Optional[Dict[str, Any]] = None
+        
+        # Cost tracking
+        self._total_input_tokens = 0
+        self._total_output_tokens = 0
 
     def analyze_universal(self, test_results: Union[List[TestResult], List[Dict], TestResultBatch]) -> AnalysisReport:
         """
@@ -191,6 +195,12 @@ class MeritAnalyzer:
                 console.print()  # Blank line for spacing
                 with Status("[bold cyan]Discovering system schema...", console=console):
                     schema_info = self.schema_discovery.discover_system_schema(parsed_tests)
+                
+                # Track tokens from schema discovery
+                if '_token_usage' in schema_info:
+                    self._total_input_tokens += schema_info['_token_usage'].get('input_tokens', 0)
+                    self._total_output_tokens += schema_info['_token_usage'].get('output_tokens', 0)
+                
                 system_type = schema_info.get('system_type', 'unknown')
                 if system_type != 'unknown':
                     # Format system type nicely (RAG stays uppercase, others are title case)
@@ -204,6 +214,12 @@ class MeritAnalyzer:
             else:
                 print("\n🧠 Discovering system schema...")
                 schema_info = self.schema_discovery.discover_system_schema(parsed_tests)
+                
+                # Track tokens from schema discovery
+                if '_token_usage' in schema_info:
+                    self._total_input_tokens += schema_info['_token_usage'].get('input_tokens', 0)
+                    self._total_output_tokens += schema_info['_token_usage'].get('output_tokens', 0)
+                
                 system_type = schema_info.get('system_type', 'unknown')
                 if system_type != 'unknown':
                     # Format system type nicely (RAG stays uppercase, others are title case)
@@ -293,6 +309,12 @@ class MeritAnalyzer:
                 # Step 5: Discover system architecture
                 with Status("[bold cyan]Analyzing system architecture...", console=console):
                     architecture = self.claude_agent.discover_system_architecture(scan_results)
+                
+                # Track tokens from architecture discovery
+                if '_token_usage' in architecture:
+                    self._total_input_tokens += architecture['_token_usage'].get('input_tokens', 0)
+                    self._total_output_tokens += architecture['_token_usage'].get('output_tokens', 0)
+                
                 console.print(f"[green]✓[/green] System architecture analyzed")
                 log_step_time("Architecture analysis")
                 
@@ -319,35 +341,36 @@ class MeritAnalyzer:
                         "[bold cyan]Analyzing patterns...", 
                         total=len(patterns)
                     )
-                
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    # Submit all pattern analyses at once
-                    future_to_pattern = {
-                        executor.submit(
-                            self._analyze_single_pattern,
-                            pattern_name,
-                            failing_tests,
-                            passing_tests,
-                            architecture
-                        ): pattern_name
-                        for pattern_name, failing_tests in patterns.items()
-                    }
                     
-                    # Collect results as they complete
-                    for future in as_completed(future_to_pattern):
-                        pattern_name = future_to_pattern[future]
-                        try:
-                            result = future.result()
-                            if result:
-                                pattern, recommendations, summary = result
-                                all_recommendations.extend(recommendations)
-                                pattern_summaries[pattern_name] = summary
+                    # ThreadPoolExecutor INSIDE Progress context so updates work
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        # Submit all pattern analyses at once
+                        future_to_pattern = {
+                            executor.submit(
+                                self._analyze_single_pattern,
+                                pattern_name,
+                                failing_tests,
+                                passing_tests,
+                                architecture
+                            ): pattern_name
+                            for pattern_name, failing_tests in patterns.items()
+                        }
+                        
+                        # Collect results as they complete
+                        for future in as_completed(future_to_pattern):
+                            pattern_name = future_to_pattern[future]
+                            try:
+                                result = future.result()
+                                if result:
+                                    pattern, recommendations, summary = result
+                                    all_recommendations.extend(recommendations)
+                                    pattern_summaries[pattern_name] = summary
+                                    progress.update(task, advance=1)
+                                else:
+                                    progress.update(task, advance=1)
+                            except Exception as e:
+                                console.print(f"\n[yellow]⚠[/yellow] Error analyzing pattern '[dim]{pattern_name}[/dim]': {e}")
                                 progress.update(task, advance=1)
-                            else:
-                                progress.update(task, advance=1)
-                        except Exception as e:
-                            console.print(f"\n[yellow]⚠[/yellow] Error analyzing pattern '[dim]{pattern_name}[/dim]': {e}")
-                            progress.update(task, advance=1)
                 
                 console.print(f"[green]✓[/green] Completed analysis of [bold]{len(pattern_summaries)}/{len(patterns)}[/bold] patterns")
                 log_step_time("Pattern analysis")
@@ -390,11 +413,27 @@ class MeritAnalyzer:
                 console.print()  # Blank line
                 console.print(f"[bold green]✅ Analysis complete![/bold green] Total time: [bold]{total_time:.1f}s[/bold]")
                 
+                # Show cost information
+                total_tokens = self._total_input_tokens + self._total_output_tokens
+                estimated_cost = self._calculate_estimated_cost()
+                console.print()
+                console.print(f"💰 [bold cyan]Cost Tracking:[/bold cyan]")
+                console.print(f"   Input tokens: [bold]{self._total_input_tokens:,}[/bold]")
+                console.print(f"   Output tokens: [bold]{self._total_output_tokens:,}[/bold]")
+                console.print(f"   Total tokens: [bold]{total_tokens:,}[/bold]")
+                console.print(f"   Estimated cost: [bold green]${estimated_cost:.4f}[/bold green]")
+                
             # Non-Rich path (fallback)
             else:
                 # Fallback to simple print statements
                 print("\n🏗️  Analyzing system architecture...")
                 architecture = self.claude_agent.discover_system_architecture(scan_results)
+                
+                # Track tokens from architecture discovery
+                if '_token_usage' in architecture:
+                    self._total_input_tokens += architecture['_token_usage'].get('input_tokens', 0)
+                    self._total_output_tokens += architecture['_token_usage'].get('output_tokens', 0)
+                
                 print("   Architecture mapped successfully")
                 
                 print("\n🧠 Analyzing patterns (Claude Agent SDK finds code + analyzes)...")
@@ -529,6 +568,40 @@ class MeritAnalyzer:
             scan_results['frameworks'] = frameworks
             self._scan_results_cache = scan_results
         return self._scan_results_cache
+    
+    def _get_source_files_to_analyze(self) -> List[str]:
+        """Get source files to analyze, excluding test files."""
+        if not self._scan_results_cache:
+            return []
+        
+        python_files = self._scan_results_cache.get('python_files', [])
+        
+        # Filter out test files
+        source_files = []
+        for file_path in python_files:
+            file_name = Path(file_path).name.lower()
+            # Skip test files
+            if (file_name.startswith('test_') or 
+                '/test/' in file_path or 
+                '/tests/' in file_path or
+                '/testing/' in file_path or
+                file_name == 'conftest.py'):
+                continue
+            source_files.append(file_path)
+        
+        return source_files
+    
+    def _calculate_estimated_cost(self) -> float:
+        """
+        Calculate estimated cost based on Claude Sonnet 4 pricing.
+        
+        Pricing (as of Oct 2024):
+        - Input: $3 per million tokens
+        - Output: $15 per million tokens
+        """
+        input_cost = (self._total_input_tokens / 1_000_000) * 3.0
+        output_cost = (self._total_output_tokens / 1_000_000) * 15.0
+        return input_cost + output_cost
 
     def _get_or_discover_architecture(self, scan_results: Dict[str, Any]) -> Dict[str, Any]:
         """Get cached architecture or discover it."""
@@ -593,12 +666,22 @@ class MeritAnalyzer:
                 keywords=self._extract_pattern_keywords(failing_tests)
             )
             
-            # Analyze with Claude Agent SDK (uses Grep/Glob to find files, then analyzes)
+            # Get source files to analyze (exclude test files)
+            source_files = self._get_source_files_to_analyze()
+            
+            # Analyze using standard API (reads files, no agent overhead)
             analysis = self.claude_agent.analyze_pattern(
                 pattern_name=pattern_name,
                 failing_tests=failing_tests,
-                passing_tests=similar_passing
+                passing_tests=similar_passing,
+                source_files=source_files  # Files to read and analyze
             )
+            
+            # Track costs
+            if '_cost_info' in analysis:
+                cost_info = analysis['_cost_info']
+                self._total_input_tokens += cost_info.get('input_tokens', 0)
+                self._total_output_tokens += cost_info.get('output_tokens', 0)
             
             # Use LLM's root cause (not hardcoded heuristics)
             # The LLM analysis already includes root_cause, pattern_characteristics, and code_issues

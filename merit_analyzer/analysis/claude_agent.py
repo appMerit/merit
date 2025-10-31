@@ -9,8 +9,13 @@ import json
 import re
 import os
 import asyncio
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+
+# Suppress asyncio event loop warnings from Claude Agent SDK
+warnings.filterwarnings('ignore', message='.*Loop.*is closed.*')
+warnings.filterwarnings('ignore', category=ResourceWarning)
 
 # Anthropic API for fast standard LLM calls
 from anthropic import Anthropic  # type: ignore
@@ -103,7 +108,7 @@ class MeritClaudeAgent:
         # Cache for responses
         self._response_cache: Dict[str, str] = {}
 
-    def _call_anthropic_direct(self, prompt: str, max_tokens: int = 4096) -> str:
+    def _call_anthropic_direct(self, prompt: str, max_tokens: int = 4096) -> tuple[str, Dict[str, int]]:
         """
         Fast standard Anthropic API call (no agent, no tools).
         
@@ -115,7 +120,7 @@ class MeritClaudeAgent:
             max_tokens: Maximum tokens in response
             
         Returns:
-            LLM response text
+            Tuple of (response_text, token_usage_dict)
         """
         try:
             message = self.anthropic_client.messages.create(
@@ -133,9 +138,15 @@ class MeritClaudeAgent:
                 if hasattr(block, 'text'):
                     response_text += block.text
             
-            return response_text
+            # Extract token usage
+            token_usage = {
+                'input_tokens': message.usage.input_tokens if hasattr(message, 'usage') else 0,
+                'output_tokens': message.usage.output_tokens if hasattr(message, 'usage') else 0
+            }
+            
+            return response_text, token_usage
         except Exception as e:
-            return f"Error: {str(e)}"
+            return f"Error: {str(e)}", {'input_tokens': 0, 'output_tokens': 0}
 
     # =======================
     # ARCHITECTURE DISCOVERY (Standard API)
@@ -158,53 +169,24 @@ class MeritClaudeAgent:
         if cache_key in self._response_cache:
             return json.loads(self._response_cache[cache_key])
         
-        # Build prompt for architecture inference
-        prompt = f"""Analyze this AI system's project structure and infer its architecture.
+        # Build minimal prompt - summarize scan results instead of dumping everything
+        files_summary = f"{len(scan_results.get('python_files', []))} Python files"
+        frameworks = ', '.join(scan_results.get('frameworks', []))
+        entry_points = ', '.join(scan_results.get('entry_points', []))
+        
+        prompt = f"""AI system architecture:
+Files: {files_summary}
+Frameworks: {frameworks}
+Entry: {entry_points}
 
-PROJECT SCAN RESULTS:
-{json.dumps(scan_results, indent=2)}
+Return JSON with: system_type, agents[], prompts[], control_flow, config, dependencies
+Keep it concise."""
 
-Based on the file structure, imports, and detected frameworks, provide your analysis in JSON format:
-
-{{
-    "system_type": "chatbot|rag|agent|code_generator|multi_modal|custom",
-    "agents": [
-        {{
-            "name": "agent_name",
-            "file": "path/to/file.py",
-            "purpose": "inferred purpose",
-            "key_methods": ["method1", "method2"]
-        }}
-    ],
-    "prompts": [
-        {{
-            "name": "prompt_name",
-            "location": "likely file or location",
-            "purpose": "inferred purpose"
-        }}
-    ],
-    "control_flow": {{
-        "entry_points": ["main.py"],
-        "flow": "description of likely data flow",
-        "decision_points": ["point1", "point2"]
-    }},
-    "configuration": {{
-        "api_keys": ["key1"],
-        "models": ["model1"],
-        "config_files": ["config.py"]
-    }},
-    "dependencies": [
-        {{
-            "name": "dependency",
-            "type": "api|database|library"
-        }}
-    ]
-}}
-
-Return ONLY valid JSON, no explanation."""
-
-        response = self._call_anthropic_direct(prompt)
+        response, token_usage = self._call_anthropic_direct(prompt)
         architecture = self._parse_architecture_response(response)
+        
+        # Add token tracking
+        architecture['_token_usage'] = token_usage
         
         # Cache the result
         self._response_cache[cache_key] = json.dumps(architecture)
@@ -271,7 +253,7 @@ Return ONLY the file paths from the list above, one per line.
 Do NOT make up or hallucinate filenames.
 Limit to 3-5 most relevant files."""
 
-        response = self._call_anthropic_direct(prompt, max_tokens=500)
+        response, token_usage = self._call_anthropic_direct(prompt, max_tokens=500)
         
         # Parse and validate file paths (must be in available_files)
         suggested_paths = self._parse_file_list_response(response)
@@ -311,29 +293,33 @@ Limit to 3-5 most relevant files."""
                        pattern_name: str,
                        failing_tests: List[TestResult],
                        passing_tests: List[TestResult],
-                       code_locations: Optional[List[str]] = None) -> Dict[str, Any]:
+                       source_files: Optional[List[str]] = None) -> Dict[str, Any]:
         """
-        Analyze a failure pattern using Claude Agent SDK to READ actual code.
+        Analyze a failure pattern using Agent SDK with directive prompt.
         
-        This is the ONLY method that uses Claude Agent SDK with code reading.
-        Claude uses Read/Grep/Glob tools to navigate and analyze the codebase.
+        Agent gets:
+        - The problem (test failures + errors)
+        - The map (file structure)
+        - The tools (Read, Grep, Glob)
+        
+        Agent investigates and returns root cause + recommendations.
 
         Args:
             pattern_name: Name of the failure pattern
             failing_tests: Failed test cases
             passing_tests: Similar tests that are passing
-            code_locations: Relevant code file paths (hints for Claude to explore)
+            source_files: Available source files (as context)
 
         Returns:
-            Dict with root cause and recommendations
+            Dict with root_cause, recommendations, and token usage
         """
         cache_key = f"pattern_{pattern_name}_{len(failing_tests)}_{len(passing_tests)}"
         if cache_key in self._response_cache:
             return json.loads(self._response_cache[cache_key])
         
-        # Use Claude Agent SDK async
-        analysis = _run_async(self._analyze_pattern_async(
-            pattern_name, failing_tests, passing_tests, code_locations
+        # Use Agent SDK with directive prompt
+        analysis = _run_async(self._analyze_pattern_with_agent(
+            pattern_name, failing_tests, passing_tests, source_files or []
         ))
         
         # Cache the result
@@ -341,136 +327,137 @@ Limit to 3-5 most relevant files."""
         
         return analysis
 
-    async def _analyze_pattern_async(self,
-                                     pattern_name: str,
-                                     failing_tests: List[TestResult],
-                                     passing_tests: List[TestResult],
-                                     code_locations: List[str]) -> Dict[str, Any]:
-        """Async pattern analysis using Claude Agent SDK."""
+    async def _analyze_pattern_with_agent(self,
+                                          pattern_name: str,
+                                          failing_tests: List[TestResult],
+                                          passing_tests: List[TestResult],
+                                          source_files: List[str]) -> Dict[str, Any]:
+        """
+        Analyze pattern using Agent SDK with directive prompt.
+        
+        Agent gets problem + file structure, uses Read/Grep/Glob to investigate.
+        """
         try:
-            # Lazy import Claude SDK (only when we need it for code analysis)
+            # Lazy import Claude SDK
             _lazy_import_claude_sdk()
             
-            # Format test examples
-            max_examples = 2
-            fail_examples = self._format_test_examples(failing_tests[:max_examples])
-            pass_examples = self._format_test_examples(passing_tests[:max_examples]) if passing_tests else "None"
+            # Ultra-minimal prompt - let Claude Agent SDK do the work
+            # Show just 1 example error (not full test data)
+            sample_error = failing_tests[0].failure_reason if failing_tests else "Unknown"
+            if len(sample_error) > 200:
+                sample_error = sample_error[:200] + "..."
             
-            prompt = f"""You are an intelligent code analysis agent with direct access to this codebase via Read, Grep, and Glob tools.
+            prompt = f"""Pattern: {pattern_name}
+Failures: {len(failing_tests)} tests failing with error like: {sample_error}
 
-PATTERN: {pattern_name}
-FAILURE COUNT: {len(failing_tests)}
-PASSING SIMILAR TESTS: {len(passing_tests)}
+Find root cause in code and return JSON with:
+- root_cause (file:line)
+- recommendations (type, title, description, priority, effort)
 
-FAILING TEST EXAMPLES:
-{fail_examples}
-
-PASSING TEST EXAMPLES:
-{pass_examples}
-
-Your task: Find WHY these tests are failing by intelligently navigating the codebase.
-
-**READ-ONLY MODE**: You can ONLY use Read, Grep, and Glob tools.
-
-**STEP 1: Find Relevant Code**
-- Use Grep to search for keywords from the test inputs/outputs (function names, class names, error messages)
-- Use Glob to find files matching patterns (e.g., **/*agent*.py, **/*prompt*.py, **/*config*.py)
-- Identify which files are most relevant to this failure pattern
-
-**STEP 2: Analyze Root Cause**
-- Use Read to examine the relevant files you found
-- Trace the failure cascade through the code path
-- Identify the exact code issue causing these failures
-
-**STEP 3: Generate Recommendations**
-Provide 2-3 specific, actionable fixes:
-- Code changes (with exact file locations and line numbers if possible)
-- Prompt changes (with exact text to modify)
-- Configuration changes
-- Design changes (new components/agents if needed)
-
-Provide your analysis in JSON format:
-{{
-    "root_cause": "specific root cause from code analysis",
-    "pattern_characteristics": {{
-        "common_inputs": ["input1", "input2"],
-        "common_failures": ["failure1", "failure2"]
-    }},
-    "code_issues": [
-        {{
-            "file": "path/to/file.py",
-            "issue": "specific issue found in code",
-            "line_number": 123
-        }}
-    ],
-    "recommendations": [
-        {{
-            "type": "code|prompt|config|design",
-            "title": "short title",
-            "description": "detailed description",
-            "file": "path/to/file",
-            "priority": "high|medium|low",
-            "effort": "high|medium|low"
-        }}
-    ]
-}}
-
-**Important**: Actually use Read/Grep tools to analyze the code. Don't guess."""
+Use Grep/Read to investigate. Return ONLY valid JSON."""
             
-            # Create Claude Agent SDK options (lazily, only when needed)
-            agent_options = ClaudeAgentOptions(
+            # Configure Agent SDK
+            from claude_agent_sdk import query as claude_query, ClaudeAgentOptions
+            
+            options = ClaudeAgentOptions(
                 cwd=str(self.project_path),
-                allowed_tools=["Read", "Grep", "Glob"],
-                disallowed_tools=["Write", "Edit", "Bash", "Task"],
-                system_prompt=(
-                    "You are an expert code analysis agent. "
-                    "Use Read, Grep, and Glob tools to navigate the codebase and find root causes of test failures. "
-                    "Trace failure cascades through code paths. Provide specific, actionable recommendations. "
-                    "READ-ONLY MODE: Do NOT write, edit, or execute code."
-                ),
-                max_turns=15,
-                model=self.model
+                allowed_tools=["Read", "Grep", "Glob"],  # Let agent investigate
+                max_turns=6,  # Minimal turns to keep costs down (was 15!)
+                model=self.model,
+                stderr=lambda msg: None  # Suppress subprocess stderr noise (loop cleanup messages)
             )
             
-            # Create Claude Agent SDK client
-            async with ClaudeSDKClient(options=agent_options) as client:
-                await client.query(prompt)
+            # Run analysis with query()
+            full_response = ""
+            total_input_tokens = 0
+            total_output_tokens = 0
+            total_cost_usd = 0.0
+            
+            async for message in claude_query(prompt=prompt, options=options):
+                # Collect text responses
+                if hasattr(message, 'content'):
+                    for block in message.content:
+                        if hasattr(block, 'text'):
+                            full_response += block.text
                 
-                # Collect response
-                full_response = ""
-                async for message in client.receive_response():
-                    if isinstance(message, AssistantMessage) and hasattr(message, 'content'):
-                        for block in message.content:
-                            if hasattr(block, 'text'):
-                                full_response += block.text
+                # Accumulate tokens/cost from EVERY message (not just final)
+                if hasattr(message, 'usage'):
+                    usage = message.usage
+                    if isinstance(usage, dict):
+                        total_input_tokens += usage.get('input_tokens', 0)
+                        total_output_tokens += usage.get('output_tokens', 0)
                 
-                # Parse analysis
-                analysis = self._parse_pattern_analysis_response(full_response)
-                return analysis
+                # Check for cost on final message
+                if hasattr(message, 'total_cost_usd'):
+                    total_cost_usd = getattr(message, 'total_cost_usd', 0)
+                
+                # Break on final result
+                if hasattr(message, 'subtype') and message.subtype in ['success', 'error']:
+                    break
+            
+            # Build token usage dict
+            token_usage = {
+                'input_tokens': total_input_tokens,
+                'output_tokens': total_output_tokens,
+                'total_cost_usd': total_cost_usd
+            }
+            
+            # Parse analysis
+            analysis = self._parse_pattern_analysis_response(full_response, pattern_name)
+            
+            # Add cost tracking
+            analysis['_cost_info'] = token_usage
+            
+            return analysis
                 
         except Exception as e:
+            import traceback
+            print(f"\n❌ Error in _analyze_pattern_with_agent for {pattern_name}:")
+            print(f"   {str(e)}")
+            traceback.print_exc()
             return {
                 "root_cause": f"Error analyzing pattern: {str(e)}",
                 "pattern_characteristics": {"common_inputs": [], "common_failures": []},
                 "code_issues": [],
-                "recommendations": []
+                "recommendations": [],
+                "_cost_info": {"error": str(e)}
             }
 
+    def _extract_error_keywords(self, tests: List[TestResult]) -> str:
+        """Extract key error terms for targeted Grep searches."""
+        keywords = set()
+        for test in tests[:5]:  # Sample first 5 tests
+            if test.failure_reason:
+                # Extract meaningful words (not common words)
+                words = test.failure_reason.lower().split()
+                keywords.update(w for w in words if len(w) > 4 and w not in {
+                    'should', 'expected', 'actual', 'value', 'error', 'failed'
+                })
+            if test.actual_output:
+                output_str = str(test.actual_output)[:200]  # First 200 chars
+                words = output_str.lower().split()
+                keywords.update(w for w in words if len(w) > 5)
+        
+        # Return top 3 keywords
+        return ", ".join(list(keywords)[:3]) if keywords else "error, failure, issue"
+    
     # =======================
     # HELPER METHODS
     # =======================
 
     def _format_test_examples(self, tests: List[TestResult]) -> str:
-        """Format test examples for prompts."""
+        """Format test examples for prompts - MINIMAL to save tokens."""
         formatted = []
         for i, test in enumerate(tests, 1):
-            formatted.append(f"""
-Example {i}:
-  Input: {test.input}
-  Expected: {test.expected_output or 'N/A'}
-  Actual: {test.actual_output}
-  Issue: {test.failure_reason or 'N/A'}
-""")
+            # Only include test name and error - NOT full input/output
+            test_name = getattr(test, 'test_name', f'test_{i}')
+            error = test.failure_reason or 'Unknown failure'
+            
+            # Truncate error if too long
+            if len(error) > 150:
+                error = error[:150] + "..."
+            
+            formatted.append(f"  {i}. {test_name}: {error}")
         return "\n".join(formatted)
 
     def _parse_architecture_response(self, response: str) -> Dict[str, Any]:
@@ -493,23 +480,114 @@ Example {i}:
             "dependencies": []
         }
 
-    def _parse_pattern_analysis_response(self, response: str) -> Dict[str, Any]:
-        """Parse pattern analysis into structured format."""
-        try:
-            # Try to extract JSON from response
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
-        except Exception:
-            pass
+    def _parse_pattern_analysis_response(self, response: str, pattern_name: str = "") -> Dict[str, Any]:
+        """Parse pattern analysis into structured format with robust JSON extraction."""
+        if not response or not response.strip():
+            print(f"⚠️  Empty response for pattern: {pattern_name}")
+            return {
+                "root_cause": "Empty response from analysis",
+                "pattern_characteristics": {"common_inputs": [], "common_failures": []},
+                "code_issues": [],
+                "recommendations": []
+            }
         
-        # Fallback: return basic structure
+        # Strategy 1: Try to extract JSON from markdown code block
+        json_block_match = re.search(r'```json\s*(\{.*?\})\s*```', response, re.DOTALL)
+        if json_block_match:
+            try:
+                result = json.loads(json_block_match.group(1))
+                if self._validate_analysis_structure(result):
+                    return result
+            except json.JSONDecodeError as e:
+                print(f"⚠️  JSON decode error in code block for {pattern_name}: {e}")
+        
+        # Strategy 2: Try to extract JSON without code block markers
+        json_match = re.search(r'\{[^{]*"root_cause".*?\}', response, re.DOTALL)
+        if json_match:
+            try:
+                result = json.loads(json_match.group())
+                if self._validate_analysis_structure(result):
+                    return result
+            except json.JSONDecodeError as e:
+                print(f"⚠️  JSON decode error (strategy 2) for {pattern_name}: {e}")
+        
+        # Strategy 3: Find the largest JSON object in response
+        json_objects = re.findall(r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}', response, re.DOTALL)
+        for json_str in sorted(json_objects, key=len, reverse=True):
+            try:
+                result = json.loads(json_str)
+                if self._validate_analysis_structure(result):
+                    return result
+            except json.JSONDecodeError:
+                continue
+        
+        # Strategy 4: Try to extract information from text even if JSON parsing fails
+        print(f"⚠️  All JSON parsing failed for {pattern_name}, attempting text extraction...")
+        extracted = self._extract_from_text(response)
+        if extracted.get("root_cause") and extracted["root_cause"] != "Unable to determine root cause":
+            return extracted
+        
+        # Complete fallback
+        print(f"❌ Failed to parse response for {pattern_name}")
+        print(f"   Response length: {len(response)} chars")
+        print(f"   First 200 chars: {response[:200]}")
+        
         return {
             "root_cause": "Unable to determine root cause",
             "pattern_characteristics": {"common_inputs": [], "common_failures": []},
             "code_issues": [],
             "recommendations": []
         }
+    
+    def _validate_analysis_structure(self, data: Dict[str, Any]) -> bool:
+        """Validate that the analysis dict has expected structure."""
+        return (
+            isinstance(data, dict) and
+            "root_cause" in data and
+            isinstance(data.get("root_cause"), str)
+        )
+    
+    def _extract_from_text(self, response: str) -> Dict[str, Any]:
+        """Extract analysis information from text when JSON parsing fails."""
+        result = {
+            "root_cause": "Unable to determine root cause",
+            "pattern_characteristics": {"common_inputs": [], "common_failures": []},
+            "code_issues": [],
+            "recommendations": []
+        }
+        
+        # Try to find root cause in text
+        root_cause_patterns = [
+            r'root[_\s]cause[:\s]+([^\n]+)',
+            r'cause[:\s]+([^\n]+)',
+            r'issue[:\s]+([^\n]+)',
+            r'problem[:\s]+([^\n]+)',
+        ]
+        
+        for pattern in root_cause_patterns:
+            match = re.search(pattern, response, re.IGNORECASE)
+            if match:
+                root_cause = match.group(1).strip()
+                if len(root_cause) > 10:  # Meaningful root cause
+                    result["root_cause"] = root_cause
+                    break
+        
+        # Try to find recommendations in text
+        rec_section = re.search(r'recommendation[s]?[:\s]+(.+?)(?:\n\n|\Z)', response, re.IGNORECASE | re.DOTALL)
+        if rec_section:
+            rec_text = rec_section.group(1)
+            # Extract numbered or bulleted recommendations
+            recs = re.findall(r'(?:^|\n)[\d\-\*]+[\.\):\s]+(.+?)(?=\n[\d\-\*]+|$)', rec_text, re.DOTALL)
+            for i, rec in enumerate(recs[:3]):  # Max 3 recommendations
+                result["recommendations"].append({
+                    "type": "unknown",
+                    "title": f"Recommendation {i+1}",
+                    "description": rec.strip(),
+                    "priority": "medium",
+                    "effort": "medium"
+                })
+        
+        return result
 
     def _parse_file_list_response(self, response: str) -> List[str]:
         """Parse file paths from response."""

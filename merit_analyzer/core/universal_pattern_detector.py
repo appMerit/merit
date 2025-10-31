@@ -122,8 +122,10 @@ Provide your analysis in JSON format (NO hardcoded detection - analyze the actua
 """
 
         try:
-            response = self.claude_agent._call_anthropic_direct(prompt)
-            return self._parse_schema_response(response)
+            response, token_usage = self.claude_agent._call_anthropic_direct(prompt)
+            schema = self._parse_schema_response(response)
+            schema['_token_usage'] = token_usage  # Track tokens
+            return schema
         except Exception as e:
             print(f"Warning: Schema discovery failed: {e}")
             return self._fallback_schema_discovery(failures)
@@ -270,16 +272,17 @@ Provide your analysis in JSON format (NO hardcoded detection - analyze the actua
         return result
 
     def _format_tests_for_schema_analysis(self, tests: List[TestResult]) -> str:
-        """Format tests for schema analysis."""
+        """Format tests for schema analysis - MINIMAL to save tokens."""
         formatted = []
         for i, test in enumerate(tests, 1):
-            formatted.append(f"""
-Test {i} (ID: {test.test_id}):
-  Input: {json.dumps(test.input, indent=2)}
-  Expected: {json.dumps(test.expected_output, indent=2) if test.expected_output else 'None'}
-  Actual: {json.dumps(test.actual_output, indent=2)}
-  Status: {test.status}
-""")
+            # Show structure, not full content
+            if isinstance(test.input, dict):
+                input_info = f"dict with keys: {list(test.input.keys())}"
+            else:
+                input_str = str(test.input)[:50]
+                input_info = f"{type(test.input).__name__}: {input_str}..."
+            
+            formatted.append(f"Test {i}: {test.status}, input={input_info}")
         return "\n".join(formatted)
 
     def _parse_schema_response(self, response: str) -> Dict[str, Any]:
@@ -600,7 +603,8 @@ Pattern name:
 """
 
         try:
-            response = self.claude_agent._call_anthropic_direct(prompt, max_tokens=200)
+            response, token_usage = self.claude_agent._call_anthropic_direct(prompt, max_tokens=200)
+            # Note: token_usage not tracked here as pattern naming is fast/cheap
             # Extract the pattern name from response
             lines = response.strip().split('\n')
             

@@ -93,21 +93,27 @@ Provide a structured analysis that will help with pattern detection and root cau
 Focus on what matters for understanding and fixing test failures.
 """
 
-        response = self.claude_agent._call_anthropic_direct(prompt)
-        return self._parse_schema_response(response)
+        response, token_usage = self.claude_agent._call_anthropic_direct(prompt)
+        schema = self._parse_schema_response(response)
+        schema['_token_usage'] = token_usage  # Track tokens
+        return schema
 
     def _format_tests_for_schema_analysis(self, tests: List[TestResult]) -> str:
-        """Format tests for schema analysis."""
+        """Format tests for schema analysis - MINIMAL to save tokens."""
         formatted = []
         for i, test in enumerate(tests, 1):
-            formatted.append(f"""
-Test {i} (ID: {test.test_id}, Status: {test.status}):
-  Input: {json.dumps(test.input, indent=4)}
-  Expected: {json.dumps(test.expected_output, indent=4) if test.expected_output else 'None'}
-  Actual: {json.dumps(test.actual_output, indent=4)}
-  Category: {test.category or 'None'}
-  Tags: {test.tags or []}
-""")
+            # Show structure, not full content
+            input_type = type(test.input).__name__
+            output_type = type(test.actual_output).__name__
+            
+            # If dict, show keys only (not values)
+            if isinstance(test.input, dict):
+                input_info = f"dict with keys: {list(test.input.keys())}"
+            else:
+                input_str = str(test.input)[:50]  # First 50 chars
+                input_info = f"{input_type}: {input_str}..."
+            
+            formatted.append(f"Test {i}: {test.status}, input={input_info}, category={test.category or 'None'}")
         return "\n".join(formatted)
 
     def _parse_schema_response(self, response: str) -> Dict[str, Any]:
