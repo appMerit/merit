@@ -81,6 +81,8 @@ class AnalysisReport(BaseModel):
     architecture: Dict[str, Any]
     recommendations: List[Recommendation] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    executive_summary: Optional[Dict[str, Any]] = Field(default=None, description="Executive summary with top fixes")
+    consolidated_recommendations: Optional[List[Dict[str, Any]]] = Field(default=None, description="Consolidated recommendations with impact scores")
 
     @property
     def total_recommendations(self) -> int:
@@ -181,6 +183,13 @@ class AnalysisReport(BaseModel):
 
         if self.summary.analysis_duration_seconds:
             md += f"**Analysis Duration**: {self.summary.analysis_duration_seconds:.1f} seconds\n\n"
+        
+        # Add executive summary if available
+        if self.executive_summary:
+            from ..recommendations.executive_summary import ExecutiveSummaryGenerator
+            generator = ExecutiveSummaryGenerator()
+            md += generator.format_executive_summary_markdown(self.executive_summary)
+            md += "\n---\n\n"
 
         # Patterns section
         if self.patterns:

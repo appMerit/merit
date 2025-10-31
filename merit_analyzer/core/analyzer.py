@@ -37,6 +37,8 @@ from ..analysis.comparative import ComparativeAnalyzer
 from ..recommendations.generator import RecommendationGenerator
 from ..recommendations.prioritizer import RecommendationPrioritizer
 from ..recommendations.formatter import RecommendationFormatter
+from ..recommendations.consolidator import RecommendationConsolidator
+from ..recommendations.executive_summary import ExecutiveSummaryGenerator
 
 
 class MeritAnalyzer:
@@ -97,6 +99,8 @@ class MeritAnalyzer:
         self.recommendation_generator = RecommendationGenerator(self.claude_agent)
         self.recommendation_prioritizer = RecommendationPrioritizer()
         self.recommendation_formatter = RecommendationFormatter()
+        self.recommendation_consolidator = RecommendationConsolidator()
+        self.executive_summary_generator = ExecutiveSummaryGenerator()
         
         # Cache for discovered architecture
         self._architecture_cache: Optional[Dict[str, Any]] = None
@@ -572,6 +576,12 @@ class MeritAnalyzer:
         input_cost = (self._total_input_tokens / 1_000_000) * 3.0
         output_cost = (self._total_output_tokens / 1_000_000) * 15.0
         return input_cost + output_cost
+    
+    def _calculate_cost(self) -> float:
+        """Calculate the total cost of all LLM calls."""
+        input_cost = (self._total_input_tokens / 1_000_000) * 3.0
+        output_cost = (self._total_output_tokens / 1_000_000) * 15.0
+        return input_cost + output_cost
 
     def _get_or_discover_architecture(self, scan_results: Dict[str, Any]) -> Dict[str, Any]:
         """Get cached architecture or discover it."""
@@ -827,8 +837,31 @@ class MeritAnalyzer:
         error = sum(1 for t in test_results if t.status == "error")
         skipped = sum(1 for t in test_results if t.status == "skipped")
         
-        # Generate prioritized action plan
-        action_plan = self._generate_action_plan(pattern_summaries, recommendations)
+        # Consolidate similar recommendations
+        consolidated_recs, impact_map = self.recommendation_consolidator.consolidate_recommendations(
+            recommendations,
+            pattern_summaries
+        )
+        
+        # Generate executive summary
+        summary_stats = {
+            'total_tests': total_tests,
+            'passed': passed,
+            'failed': failed,
+            'error': error,
+            'skipped': skipped
+        }
+        executive_summary = self.executive_summary_generator.generate_summary(
+            consolidated_recs,
+            pattern_summaries,
+            summary_stats
+        )
+        
+        # Generate prioritized action plan from consolidated recommendations
+        action_plan = self._generate_action_plan_from_consolidated(
+            consolidated_recs, 
+            executive_summary
+        )
         
         # Create report summary
         summary = ReportSummary(
@@ -850,13 +883,45 @@ class MeritAnalyzer:
             action_plan=action_plan,
             architecture=architecture,
             recommendations=recommendations,
+            executive_summary=executive_summary,
+            consolidated_recommendations=consolidated_recs,
             metadata={
                 "analyzer_version": "1.0.0",
                 "config": self.config.model_dump(),
-                "scan_results": scan_results
+                "scan_results": scan_results,
+                "cost_tracking": {
+                    "input_tokens": self._total_input_tokens,
+                    "output_tokens": self._total_output_tokens,
+                    "estimated_cost": self._calculate_cost()
+                }
             }
         )
 
+    def _generate_action_plan_from_consolidated(
+        self,
+        consolidated_recs: List[Dict[str, Any]],
+        executive_summary: Dict[str, Any]
+    ) -> List[str]:
+        """Generate prioritized action plan from consolidated recommendations."""
+        plan = []
+        
+        # Add implementation phases
+        for phase in executive_summary.get('implementation_order', []):
+            plan.append(f"Phase {phase['phase']}: {phase['name']}")
+            plan.append(f"  {phase['description']}")
+            plan.append(f"  Expected Impact: {phase['impact']}")
+            plan.append("")
+        
+        # Add top fixes
+        plan.append("Top Priority Fixes:")
+        for i, rec in enumerate(executive_summary.get('top_fixes', [])[:5], 1):
+            plan.append(
+                f"{i}. [{rec['effort_estimate']}] {rec['title']} "
+                f"→ fixes {rec['impact_score']} patterns"
+            )
+        
+        return plan
+    
     def _generate_action_plan(self, 
                              pattern_summaries: Dict[str, PatternSummary],
                              recommendations: List[Recommendation]) -> List[str]:
@@ -975,6 +1040,17 @@ class MeritAnalyzer:
 
     def _display_rich_results(self, report: AnalysisReport, console: Console):
         """Display results using Rich formatting."""
+        
+        # Display executive summary if available
+        if report.executive_summary:
+            exec_summary_panels = self.executive_summary_generator.format_executive_summary_cli(
+                report.executive_summary
+            )
+            console.print("\n")
+            for panel in exec_summary_panels:
+                console.print(panel)
+                console.print("")
+        
         # Summary table
         table = Table(title="📊 Analysis Summary", box=box.ROUNDED)
         table.add_column("Metric", style="cyan", no_wrap=True)

@@ -9,9 +9,11 @@ Merit Analyzer is a universal Python SDK that analyzes **any AI system's** test 
 - **Universal AI System Support**: Works with chatbots, RAG systems, code generators, agents, and more
 - **Intelligent Schema Discovery**: Automatically understands your system's data patterns and validation rules
 - **Hierarchical Pattern Detection**: Clusters failures using input similarity, output patterns, and delta analysis
-- **AI-Powered Root Cause Analysis**: Uses LLM to discover why failures occur and generate failure context
-- **System-Agnostic Recommendations**: Provides fixes tailored to your specific AI system type
-- **Multiple Output Formats**: JSON, Markdown, HTML reports
+- **AI-Powered Root Cause Analysis**: Uses Claude Agent SDK to read actual code and trace failure cascades
+- **Smart Recommendation Consolidation**: Merges similar fixes and calculates impact scores (patterns addressed)
+- **Executive Summary & Strategic Planning**: Top 10 fixes, quick wins, and 3-phase implementation order
+- **Production-Ready Reports**: Clear, actionable guidance showing which 5-10 fixes solve 70%+ of failures
+- **Multiple Output Formats**: JSON, Markdown reports with executive summaries
 - **Framework Agnostic**: Works with any AI framework (LangChain, LlamaIndex, Anthropic, OpenAI, etc.)
 
 ## 🌐 Universal AI System Support
@@ -54,7 +56,12 @@ Merit Analyzer works with **any type of AI system**:
    - Uses **Read** to examine actual code files and trace failure cascades (READ-ONLY)
    - Identifies root causes from actual code analysis
    - Generates specific, actionable recommendations
-5. **Prioritizes Actions**: Deduplicates and ranks recommendations by impact and effort
+5. **Consolidates & Prioritizes**: 
+   - Merges similar recommendations (e.g., 88 individual recs → 14 consolidated fixes)
+   - Calculates impact scores showing how many patterns each fix addresses
+   - Generates executive summary with top 10 fixes and quick wins
+   - Creates 3-phase implementation plan (infrastructure → agents → edge cases)
+   - Shows coverage: "Top 5 fixes solve 71% of failures"
 
 ## 🎯 Target Users
 
@@ -246,45 +253,105 @@ report = analyzer.analyze("test_results.json")
 
 The analysis report contains:
 
+- **Executive Summary**: Strategic overview with top fixes and implementation guidance
+  - At-a-glance statistics and coverage analysis
+  - Top 10 highest-impact fixes (consolidated from similar recommendations)
+  - Quick wins (low-effort, high-impact fixes)
+  - Suggested 3-phase implementation order
+  - Issue category breakdown
 - **Summary Statistics**: Test counts, pass rates, patterns found
 - **Failure Patterns**: Grouped failures with root cause analysis
-- **Recommendations**: Specific, actionable fixes prioritized by impact
-- **Action Plan**: Step-by-step implementation guide
+- **Consolidated Recommendations**: Similar fixes merged with impact scores showing how many patterns each addresses
+- **Detailed Recommendations**: All individual recommendations with code examples
+- **Action Plan**: Strategic implementation guide based on consolidated fixes
+
+### Key Report Features
+
+**Consolidation**: Similar recommendations are automatically merged. For example:
+- 13 recommendations about "increase character limit" → 1 consolidated fix
+- 8 recommendations about "add fallback search" → 1 consolidated fix
+- Impact score shows total patterns addressed
+
+**Strategic Prioritization**: 
+- Recommendations sorted by impact score (# of patterns fixed)
+- Infrastructure fixes prioritized first (search, validation, data quality)
+- Agent configuration second (prompts, instructions, formatting)
+- Edge cases and error handling third
+
+**Coverage Analysis**: Shows what % of failures are addressed by top N fixes
+- Example: "Top 5 fixes cover 71% of patterns (22/31)"
 
 ### Example Output
 
 ```
-📊 ANALYSIS SUMMARY
+╭──────────────────────────── 📊 Executive Summary ────────────────────────────╮
+│ Total Failures: 31 tests                                                     │
+│ Patterns Identified: 31                                                      │
+│ Recommendations: 14 (consolidated)                                           │
+│                                                                              │
+│ Top 10 fixes address 100% of patterns                                        │
+│ ⚡ 5 quick wins available!                                                   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+                          🎯 Top 10 Recommended Fixes                           
+╭─────┬────────────────────────────────────────────────────┬──────┬──────┬─────╮
+│ #   │ Fix                                                │ Imp… │ Eff… │ Pr… │
+├─────┼────────────────────────────────────────────────────┼──────┼──────┼─────┤
+│ 1   │ Add anti-hallucination guardrails and data v...    │   19 │ low  │ HI… │
+│     │                                                    │ pat… │      │     │
+│ 2   │ Improve content accessibility for non-techni...    │   16 │ low  │ HI… │
+│     │                                                    │ pat… │      │     │
+│ 3   │ Increase content character limits across sea...    │    3 │ med… │ HI… │
+│     │                                                    │ pat… │      │     │
+╰─────┴────────────────────────────────────────────────────┴──────┴──────┴─────╯
+
+╭──────────────────────── ⚡ Quick Wins - Start Here! ─────────────────────────╮
+│   • Add anti-hallucination guardrails (fixes 19 patterns)                    │
+│   • Improve content accessibility (fixes 16 patterns)                        │
+│   • Increase character limits (fixes 3 patterns)                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+📋 IMPLEMENTATION ORDER
 ====================================
-Total tests: 15
-Passed: 8
-Failed: 7
-Pass rate: 53.3%
-Patterns found: 3
-Recommendations: 12
+Phase 1: Infrastructure & Data Quality
+  Fix foundational issues with data retrieval and validation
+  Expected Impact: ~46 patterns
+
+Phase 2: Agent Instructions & Output Quality  
+  Improve agent prompts, instructions, and output formatting
+  Expected Impact: ~6 patterns
+
+Phase 3: Error Handling & Edge Cases
+  Handle edge cases and improve error handling
+  Expected Impact: ~5 patterns
 
 🔍 FAILURE PATTERNS
 ------------------------------------
 pricing_vague_responses: 4 failures (26.7%)
-  Root cause: Prompt template lacks specific pricing examples
+  Root cause: company_researcher.py:35 - Prompt template lacks specific 
+               pricing examples and validation logic
 
-timeout_issues: 2 failures (13.3%)
-  Root cause: No timeout handling for complex requests
-
-validation_errors: 1 failures (6.7%)
-  Root cause: Missing input validation
-
-💡 TOP RECOMMENDATIONS
+💡 TOP RECOMMENDATIONS (Consolidated)
 ------------------------------------
-1. Add specific pricing examples to prompt template
-   Type: Prompt
-   Effort: 30 minutes
-   Impact: Fixes 4 tests in pricing_vague_responses
-
-2. Implement timeout handling for complex requests
+1. Add anti-hallucination guardrails and data validation (Fixes 19 patterns)
    Type: Code
-   Effort: 1 hour
-   Impact: Fixes 2 tests in timeout_issues
+   Effort: low
+   Impact: Addresses 40 related issues across multiple files
+   
+   Implementation:
+   - Update writer task to validate research data
+   - Add explicit no-fabrication instructions
+   - Implement data quality checks
+
+2. Improve content accessibility for non-technical readers (Fixes 16 patterns)
+   Type: Prompt
+   Effort: low
+   Impact: Addresses 8 related issues
+   
+   Implementation:
+   - Update agent backstory with accessibility guidelines
+   - Add jargon detection and translation instructions
+   - Include plain language requirements in tasks
 ```
 
 ## 🔧 Configuration
