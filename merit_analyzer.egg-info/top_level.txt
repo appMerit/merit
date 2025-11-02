@@ -1,3 +1,0 @@
-examples
-merit_analyzer
-tests
