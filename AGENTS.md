@@ -1,6 +1,6 @@
 # Code Patterns
-- Don't do defensive programming. Try-catch are acceptible only after getting approval from the user.
-- Don't spam with helpers.
+- Don't do defensive programming. Try-catch are acceptible only after having approval from the user.
+- Helpers are not acceptiable without user's permission.
 - Follow OOP and DRY.
 - Keep code short. Smaller is better.
 

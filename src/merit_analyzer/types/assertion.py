@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from dataclasses import dataclass, asdict
 from typing import Any, List, Literal, Tuple
 
-from .test_case import TestCase
+from .testcase import TestCase
 
 # Core objects
 

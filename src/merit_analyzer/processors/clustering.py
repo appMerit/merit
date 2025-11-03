@@ -4,8 +4,8 @@ from dotenv import load_dotenv
 from hdbscan import HDBSCAN
 from typing import List
 
-from ..clients import client
-from ..models import AssertionState, AssertionStateGroup, StateGroupMetadata
+from ..engines import llm_client
+from ..types import AssertionState, AssertionStateGroup, StateGroupMetadata
 
 load_dotenv()
 
@@ -77,15 +77,15 @@ CLUSTERING_PROMPT = """
 async def cluster_failures(failed_assertions: List[AssertionState]) -> List[AssertionStateGroup]:
     """Cluster failed assertions for further error analysis"""
 
-    embedding_model_response = client.embeddings.create(
+    embeddings = await llm_client.generate_embeddings(
         model="text-embedding-3-small",
-        input=[assertion.failure_reason.analysis for assertion in failed_assertions], #type: ignore
+        input_values=[assertion.failure_reason.analysis for assertion in failed_assertions], #type: ignore
     )
 
     labels = HDBSCAN(
         min_cluster_size=2, 
         min_samples=1
-        ).fit_predict([item.embedding for item in embedding_model_response.data]) #type: ignore
+        ).fit_predict(embeddings) #type: ignore
 
     grouped = defaultdict(list)
     clusters = []
@@ -103,12 +103,11 @@ async def cluster_failures(failed_assertions: List[AssertionState]) -> List[Asse
                 description="These failed test cases have not been grouped due to their uniqueness",
             )
         else:
-            llm_response = client.responses.parse(
+            metadata = await llm_client.create_object(
                 model="gpt-5-2025-08-07",
-                input=CLUSTERING_PROMPT.format(errors=cluster_errors),
-                text_format=StateGroupMetadata
+                prompt=CLUSTERING_PROMPT.format(errors=cluster_errors),
+                schema=StateGroupMetadata
             )
-            metadata = llm_response.output_parsed 
         
         clusters.append(AssertionStateGroup(
             metadata=metadata, #type: ignore

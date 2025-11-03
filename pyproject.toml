@@ -1,10 +1,11 @@
 [project]
-name = "error-analysis"
+name = "merit-analyzer"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
-    { name = "RealNickSheero", email = "nick@tensorsense.com" }
+    { name = "Mark Reith", email = "mark@appmerit.com" },
+    { name = "Nikita Shirobokov", email = "nick@appmerit.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
@@ -16,15 +17,18 @@ dependencies = [
     "hdbscan>=0.8.38",
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
 [dependency-groups]
 dev = [
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
 ]
+
+[project.scripts]
+merit-analyzer = "merit_analyzer:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

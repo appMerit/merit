@@ -1,5 +1,5 @@
-from error_analysis.engines.clustering import cluster_failures
-from error_analysis.models import AssertionState, AssertionStateGroup, StateFailureReason, TestCase
+from merit_analyzer.processors.clustering import cluster_failures
+from merit_analyzer.types import AssertionState, AssertionStateGroup, StateFailureReason, TestCase
 
 async def test_cluster_failures_integration() -> None:
     analyses = [
