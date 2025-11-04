@@ -34,6 +34,12 @@ def test_project_path():
     return str(Path(__file__).parent.parent.parent)
 
 
+@pytest.fixture
+def buggy_code_path():
+    """Path to fixtures directory with intentionally buggy code."""
+    return str(Path(__file__).parent.parent / "fixtures" / "buggy_code")
+
+
 def create_test_group(name: str, description: str, test_cases: list) -> AssertionStateGroup:
     """Helper to create an assertion state group."""
     assertion_states = []
@@ -291,17 +297,151 @@ async def test_hallucination_detection(api_key, test_project_path):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_real_bugs_analysis(api_key, buggy_code_path):
+    """Test analysis with REAL buggy code from fixtures."""
+    
+    # Create failure groups that reference ACTUAL buggy code
+    groups = [
+        create_test_group(
+            name="DIVISION_BY_ZERO",
+            description="ZeroDivisionError in calculator functions",
+            test_cases=[
+                {
+                    'input': "divide(10, 0)",
+                    'expected': "Result: 10",
+                    'actual': "ZeroDivisionError",
+                    'error': "ZeroDivisionError: division by zero in calculator.divide()"
+                },
+                {
+                    'input': "calculate_average([])",
+                    'expected': "Average: 0",
+                    'actual': "ZeroDivisionError",
+                    'error': "ZeroDivisionError: division by zero in calculator.calculate_average()"
+                },
+                {
+                    'input': "get_percentage(50, 0)",
+                    'expected': "Percentage: 50%",
+                    'actual': "ZeroDivisionError",
+                    'error': "ZeroDivisionError: division by zero in calculator.get_percentage()"
+                }
+            ]
+        ),
+        create_test_group(
+            name="NONE_TYPE_ATTRIBUTE_ERRORS",
+            description="AttributeError when accessing None object properties",
+            test_cases=[
+                {
+                    'input': "get_user_email(None)",
+                    'expected': "user@example.com",
+                    'actual': "AttributeError",
+                    'error': "AttributeError: 'NoneType' object has no attribute 'email' in user_service.get_user_email()"
+                },
+                {
+                    'input': "format_user_name({'id': 1})",
+                    'expected': "John Doe",
+                    'actual': "KeyError",
+                    'error': "KeyError: 'name' in user_service.format_user_name()"
+                },
+                {
+                    'input': "get_user_age({'name': 'Bob'})",
+                    'expected': "Age: 31",
+                    'actual': "TypeError",
+                    'error': "TypeError: unsupported operand type(s) for +: 'NoneType' and 'int' in user_service.get_user_age()"
+                }
+            ]
+        ),
+        create_test_group(
+            name="LIST_INDEX_ERRORS",
+            description="IndexError when accessing list elements",
+            test_cases=[
+                {
+                    'input': "get_first_item([])",
+                    'expected': "First item",
+                    'actual': "IndexError",
+                    'error': "IndexError: list index out of range in data_processor.get_first_item()"
+                },
+                {
+                    'input': "process_batch([1], 2)",
+                    'expected': "Processed batch",
+                    'actual': "IndexError",
+                    'error': "IndexError: list index out of range in data_processor.process_batch() accessing batch[1]"
+                },
+                {
+                    'input': "get_last_three([1, 2])",
+                    'expected': "[1, 2, 3]",
+                    'actual': "IndexError",
+                    'error': "IndexError: list index out of range in data_processor.get_last_three()"
+                },
+                {
+                    'input': "merge_data([], [1, 2])",
+                    'expected': "Merged data",
+                    'actual': "IndexError",
+                    'error': "IndexError: list index out of range in data_processor.merge_data()"
+                }
+            ]
+        )
+    ]
+    
+    # Analyze all groups using the buggy code fixtures directory
+    analyzer = CodeAnalyzer(
+        project_path=buggy_code_path,
+        api_key=api_key
+    )
+    results = await analyzer.analyze_multiple_groups(groups)
+    
+    # Verify results
+    assert len(results) == 3, f"Expected 3 results, got {len(results)}"
+    
+    # Print comprehensive results
+    print(f"\n{'='*70}")
+    print("REAL BUGS ANALYSIS RESULTS")
+    print(f"{'='*70}")
+    print(f"Analyzing code in: {buggy_code_path}")
+    
+    for i, result in enumerate(results, 1):
+        print(f"\n{'─'*70}")
+        print(f"CLUSTER {i}: {result.group_name}")
+        print(f"{'─'*70}")
+        print(f"📝 Description: {result.group_description}")
+        print(f"\n🔍 Root Cause:")
+        print(f"   {result.root_cause[:300]}...")
+        print(f"\n💻 Problematic Code:")
+        print(f"   {result.problematic_code[:200]}...")
+        print(f"\n💡 Recommendations: {len(result.recommendations)}")
+        for j, rec in enumerate(result.recommendations[:3], 1):
+            title = rec.get('title', 'No title')
+            priority = rec.get('priority', 'unknown')
+            print(f"   {j}. [{priority.upper()}] {title}")
+        
+        # Verify basic structure
+        assert result.group_name in ["DIVISION_BY_ZERO", "NONE_TYPE_ATTRIBUTE_ERRORS", "LIST_INDEX_ERRORS"]
+        assert len(result.root_cause) > 10, f"Root cause too short for {result.group_name}"
+        assert len(result.problematic_code) > 10, f"Problematic code too short for {result.group_name}"
+    
+    print(f"\n{'='*70}")
+    print("✅ All real bug clusters analyzed successfully")
+    print(f"{'='*70}")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_cost_tracking(api_key, test_project_path):
-    """Test that token usage and cost are tracked correctly."""
+    """Test that token usage and cost are tracked correctly with a simple case."""
     group = create_test_group(
-        name="SIMPLE_ERROR",
-        description="Simple test error for cost tracking",
+        name="DIVISION_BY_ZERO",
+        description="Division by zero errors in calculation",
         test_cases=[
             {
-                'input': "x=5",
-                'expected': "10",
-                'actual': "5",
-                'error': "Math calculation wrong"
+                'input': "numerator=10, denominator=0",
+                'expected': "Result calculated",
+                'actual': "ZeroDivisionError",
+                'error': "ZeroDivisionError: division by zero"
+            },
+            {
+                'input': "x=5, y=0",
+                'expected': "5.0",
+                'actual': "ZeroDivisionError",
+                'error': "ZeroDivisionError: float division by zero"
             }
         ]
     )
@@ -314,11 +454,11 @@ async def test_cost_tracking(api_key, test_project_path):
     results = await analyzer.analyze_multiple_groups([group])
     
     assert len(results) == 1
-    assert results[0].group_name == "SIMPLE_ERROR"
+    assert results[0].group_name == "DIVISION_BY_ZERO"
     
     # Print detailed results
     print(f"\n{'='*60}")
-    print("ANALYSIS RESULTS")
+    print("COST TRACKING TEST RESULTS")
     print(f"{'='*60}")
     result = results[0]
     print(f"\n📋 Group: {result.group_name}")
@@ -332,7 +472,6 @@ async def test_cost_tracking(api_key, test_project_path):
         print(f"   {i}. {rec.get('title', 'No title')}")
     
     print(f"\n{'='*60}")
-    print("Cost tracking test completed")
-    print("Check console output above for token usage and cost")
+    print("Check token usage output above for accurate cost tracking")
     print(f"{'='*60}")
 
