@@ -189,6 +189,13 @@ class CodeAnalyzer:
         total_input_tokens = 0
         total_output_tokens = 0
         
+        # Define hook to remind Claude before stopping
+        async def ensure_tool_call_hook(input_data, tool_use_id, context):
+            """Remind Claude to call submit_analysis before completing."""
+            return {
+                'systemMessage': 'REMINDER: You must call mcp__analyzer__submit_analysis to submit your findings before ending.'
+            }
+        
         # Configure options with MCP server (ONCE for all clusters)
         options = self._ClaudeAgentOptions(
             cwd=str(self.project_path),
@@ -197,6 +204,9 @@ class CodeAnalyzer:
             max_turns=8,
             model=self.model,
             stderr=lambda msg: None,  # Suppress errors
+            hooks={
+                'Stop': [{'hooks': [ensure_tool_call_hook]}]
+            },
             system_prompt="""You are a code debugger. Your task is to:
 1. Use Grep to search for relevant code
 2. Use Read to examine the problematic files
