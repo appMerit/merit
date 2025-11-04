@@ -189,21 +189,15 @@ class CodeAnalyzer:
         total_input_tokens = 0
         total_output_tokens = 0
         
-        # Analyze each group independently using ClaudeSDKClient
-        for group in groups:
-            try:
-                # Build minimal prompt
-                prompt = self._build_minimal_prompt(group)
-                
-                # Configure options with MCP server
-                options = self._ClaudeAgentOptions(
-                    cwd=str(self.project_path),
-                    mcp_servers={"analyzer": analyzer_server},
-                    allowed_tools=["Read", "Grep", "Glob", "mcp__analyzer__submit_analysis"],
-                    max_turns=8,
-                    model=self.model,
-                    stderr=lambda msg: None,  # Suppress errors
-                    system_prompt="""You are a code debugger. Your task is to:
+        # Configure options with MCP server (ONCE for all clusters)
+        options = self._ClaudeAgentOptions(
+            cwd=str(self.project_path),
+            mcp_servers={"analyzer": analyzer_server},
+            allowed_tools=["Read", "Grep", "Glob", "mcp__analyzer__submit_analysis"],
+            max_turns=8,
+            model=self.model,
+            stderr=lambda msg: None,  # Suppress errors
+            system_prompt="""You are a code debugger. Your task is to:
 1. Use Grep to search for relevant code
 2. Use Read to examine the problematic files
 3. Identify the root cause with file:line reference
@@ -216,16 +210,22 @@ For each recommendation, you MUST provide:
 - The fixed code that resolves the issue
 
 YOU MUST call mcp__analyzer__submit_analysis before the conversation ends. This is REQUIRED to complete the task."""
-                )
-                
-                print(f"\n🔍 Analyzing group: {group.metadata.name}")
-                
-                # Use ClaudeSDKClient (not query()) for custom tools support
-                response_text = ""
-                tool_result = None
-                tool_was_called = False
-                
-                async with self._ClaudeSDKClient(options=options) as client:
+        )
+        
+        # Create ONE ClaudeSDKClient for all clusters to maintain context
+        async with self._ClaudeSDKClient(options=options) as client:
+            # Analyze each group with shared context
+            for group in groups:
+                try:
+                    # Build minimal prompt
+                    prompt = self._build_minimal_prompt(group)
+                    
+                    print(f"\n🔍 Analyzing group: {group.metadata.name}")
+                    
+                    # Use the same client - maintains context!
+                    response_text = ""
+                    tool_result = None
+                    tool_was_called = False
                     await client.query(prompt)
                     
                     async for message in client.receive_response():
@@ -304,34 +304,34 @@ YOU MUST call mcp__analyzer__submit_analysis before the conversation ends. This 
                     else:
                         # Fallback to text parsing
                         analysis_data = self._parse_response(response_text)
-                
-                # Extract relevant test info
-                relevant_tests = [
-                    f"Input: {state.test_case.input_value}, Expected: {state.test_case.expected}, Got: {state.return_value}"
-                    for state in group.assertion_states[:3]
-                ]
-                
-                results.append(AnalysisResult(
-                    group_name=group.metadata.name,
-                    group_description=group.metadata.description,
-                    root_cause=analysis_data.get('root_cause', 'Unknown'),
-                    problematic_code=analysis_data.get('problematic_code', 'Not found'),
-                    recommendations=analysis_data.get('recommendations', []),
-                    relevant_tests=relevant_tests
-                ))
-                
-            except Exception as e:
-                import traceback
-                print(f"\n⚠️  Error analyzing group '{group.metadata.name}': {e}")
-                traceback.print_exc()
-                results.append(AnalysisResult(
-                    group_name=group.metadata.name,
-                    group_description=group.metadata.description,
-                    root_cause=f'Error: {str(e)}',
-                    problematic_code='Analysis failed',
-                    recommendations=[],
-                    relevant_tests=[]
-                ))
+                    
+                    # Extract relevant test info
+                    relevant_tests = [
+                        f"Input: {state.test_case.input_value}, Expected: {state.test_case.expected}, Got: {state.return_value}"
+                        for state in group.assertion_states[:3]
+                    ]
+                    
+                    results.append(AnalysisResult(
+                        group_name=group.metadata.name,
+                        group_description=group.metadata.description,
+                        root_cause=analysis_data.get('root_cause', 'Unknown'),
+                        problematic_code=analysis_data.get('problematic_code', 'Not found'),
+                        recommendations=analysis_data.get('recommendations', []),
+                        relevant_tests=relevant_tests
+                    ))
+                    
+                except Exception as e:
+                    import traceback
+                    print(f"\n⚠️  Error analyzing group '{group.metadata.name}': {e}")
+                    traceback.print_exc()
+                    results.append(AnalysisResult(
+                        group_name=group.metadata.name,
+                        group_description=group.metadata.description,
+                        root_cause=f'Error: {str(e)}',
+                        problematic_code='Analysis failed',
+                        recommendations=[],
+                        relevant_tests=[]
+                    ))
         
         # Calculate cost with proper cache pricing
         # Note: total_input_tokens already includes all input types summed
