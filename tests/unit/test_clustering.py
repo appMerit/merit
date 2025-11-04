@@ -1,5 +1,6 @@
 from merit_analyzer.processors.clustering import cluster_failures
-from merit_analyzer.types import AssertionState, AssertionStateGroup, StateFailureReason, TestCase
+from merit_analyzer.types.assertion import AssertionState, AssertionStateGroup, StateFailureReason
+from merit_analyzer.types.testcase import TestCase
 
 async def test_cluster_failures_integration() -> None:
     analyses = [
@@ -11,7 +12,13 @@ async def test_cluster_failures_integration() -> None:
     ]
     assertions = [
         AssertionState(
-            test_case=TestCase(input_value=f"case-{idx}", expected="expected"),
+            test_case=TestCase(
+                input_value=f"case-{idx}",
+                expected="expected",
+                actual=None,
+                passed=False,
+                error_message=text
+            ),
             return_value=None,
             passed=False,
             confidence=1.0,

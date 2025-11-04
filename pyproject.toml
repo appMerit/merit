@@ -15,6 +15,9 @@ dependencies = [
     "rich>=14.2.0",
     "scikit-learn>=1.7.2",
     "hdbscan>=0.8.38",
+    "anthropic>=0.40.0",
+    "claude-agent-sdk>=0.1.0",
+    "click>=8.1.0",
 ]
 
 [dependency-groups]
@@ -24,7 +27,7 @@ dev = [
 ]
 
 [project.scripts]
-merit-analyzer = "merit_analyzer:main"
+merit = "merit_analyzer.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -32,4 +35,3 @@ build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-[build-system]

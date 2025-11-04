@@ -1,39 +1,100 @@
-# Merit
+# Merit Analyzer
 
-**Description:**
-Error analysis for AI projects.
+AI-powered test failure analysis for AI systems.
 
-**Expected behavior:**
-- user runs the tool in CLI
-- the tool takes a .csv file with test results and error messages as input. It tells the user what columns and types are necessary
-- backend parses each row inside this file into a data object: test input (any), expected output (any), actual output (any), pass (bool), error_message (str | None), additional_context (str | None). If no error_message is provided - it generates it with LLM
-- backend clusters all messages into groups. For each group it generates a name (str) and pattern (str).
-- backend predicts what code contributes to each group of errors the most, and provide ideas on fixing them.
-- the tool returns a Markdown file with the following structure: error group name > problematic behavior > problematic code > relevant test results
+## Quick Start
+
+### Installation
+
+```bash
+# Install with uv (recommended)
+uv sync
+
+# Or install with pip
+pip install -e .
+```
+
+### Usage
+
+```bash
+# Set your Anthropic API key
+export ANTHROPIC_API_KEY=your_key_here
+
+# Run analysis
+merit tests.csv -p ./your_project -o report.md
+```
+
+### CSV Format
+
+Your CSV file should have these columns:
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `input_value` | any | Yes | Test input |
+| `expected` | any | Yes | Expected output |
+| `actual` | any | Yes | Actual output |
+| `passed` | bool | Yes | true/false |
+| `error_message` | str | No | Error message if failed |
+| `additional_context` | str | No | Additional context |
+
+**Example CSV:**
+
+```csv
+input_value,expected,actual,passed,error_message
+"Calculate price for 2 items","$40","$20",false,"Price calculation incorrect"
+"Format date 2024-01-15","Jan 15, 2024","2024-01-15",false,"Date not formatted"
+"Validate email test@example.com","true","false",false,"Email validation failed"
+```
+
+## How It Works
+
+1. **Parse CSV** → Loads test results into structured data
+2. **Cluster Failures** → Groups similar failures using embeddings + HDBSCAN
+3. **Analyze Code** → Uses Claude Agent SDK to find root causes in your codebase
+4. **Generate Report** → Creates markdown report with fixes
+
+## Output Format
+
+The tool generates a markdown report with:
+
+```
+# Test Failure Analysis Report
+
+## 1. ERROR_GROUP_NAME
+
+### Problematic Behavior
+Description of what's happening...
+
+### Root Cause
+file.py:line - specific issue
+
+### Problematic Code
+[Code snippet]
+
+### Recommended Fixes
+1. Fix title (Priority: HIGH, Effort: low)
+   Detailed description with code examples...
+
+### Relevant Test Results
+- Input: ..., Expected: ..., Got: ...
+```
 
 ## Structure
 
 **Key data abstractions:**
-- src/merit_analyzer/types
+- `src/merit_analyzer/types` - Data models (TestCase, AssertionState, etc.)
 
 **Key stateless processors:** 
-- src/merit_analyzer/processors
+- `src/merit_analyzer/processors` - Clustering, markdown formatting
 
 **Key stateful engines:**
-- src/merit_analyzer/engines
+- `src/merit_analyzer/engines` - LLM client, code analyzer
 
 **Tests:**
-- tests/unit
+- `tests/unit`
 
-## Branches
+## Development Branches
 
-Active development is happening on feature branches:
-
+- **`main`** - Stable release branch
 - **`mark/end-to-end`** - End-to-end implementation and testing
 - **`nick/clustering`** - Pattern clustering improvements
-
-## TODO
-
-1. Build the csv-to-data_objects parser
-2. Build the error-to-code mapping
-3. Build the output processor
