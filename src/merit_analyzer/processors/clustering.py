@@ -5,7 +5,7 @@ from hdbscan import HDBSCAN
 from typing import List
 
 from ..engines import llm_client
-from ..types import AssertionState, AssertionStateGroup, StateGroupMetadata
+from ..types import TestCase, TestCaseGroup, GroupMetadata
 
 load_dotenv()
 
@@ -74,12 +74,12 @@ CLUSTERING_PROMPT = """
 ===== ANALYZE ERRORS AND FOLLOW GIVEN INSTRUCTIONS =====
 """
 
-async def cluster_failures(failed_assertions: List[AssertionState]) -> List[AssertionStateGroup]:
-    """Cluster failed assertions for further error analysis"""
+async def cluster_failures(failed_test_cases: List[TestCase]) -> List[TestCaseGroup]:
+    """Cluster failed test cases for further error analysis"""
 
     embeddings = await llm_client.generate_embeddings(
         model="text-embedding-3-small",
-        input_values=[assertion.failure_reason.analysis for assertion in failed_assertions], #type: ignore
+        input_values=[str(test_case.test_case_result.errors) for test_case in failed_test_cases], #type: ignore
     )
 
     labels = HDBSCAN(
@@ -87,18 +87,18 @@ async def cluster_failures(failed_assertions: List[AssertionState]) -> List[Asse
         min_samples=1
         ).fit_predict(embeddings) #type: ignore
 
-    grouped = defaultdict(list)
-    clusters = []
+    aggregated = defaultdict(list)
+    groups = []
 
-    for assertion, label in zip(failed_assertions, labels, strict=True):
-        grouped[label].append(assertion)
+    for test_case, label in zip(failed_test_cases, labels, strict=True):
+        aggregated[label].append(test_case)
 
-    for label in sorted(grouped):
-        states = grouped[label]
-        cluster_errors = "\n".join(state.failure_reason.analysis for state in states)
+    for label in sorted(aggregated):
+        states = aggregated[label]
+        cluster_errors = "\n".join(str(test_case.test_case_result.errors) for test_case in states)
 
         if label == -1:
-            metadata = StateGroupMetadata(
+            metadata = GroupMetadata(
                 name="Unclustered errors",
                 description="These failed test cases have not been grouped due to their uniqueness",
             )
@@ -106,12 +106,12 @@ async def cluster_failures(failed_assertions: List[AssertionState]) -> List[Asse
             metadata = await llm_client.create_object(
                 model="gpt-5-2025-08-07",
                 prompt=CLUSTERING_PROMPT.format(errors=cluster_errors),
-                schema=StateGroupMetadata
+                schema=GroupMetadata
             )
         
-        clusters.append(AssertionStateGroup(
+        groups.append(TestCaseGroup(
             metadata=metadata, #type: ignore
-            assertion_states=states,
+            test_cases=states,
             grouped_by="failed"))
 
-    return clusters
+    return groups

@@ -1,5 +1,5 @@
 from merit_analyzer.processors.clustering import cluster_failures
-from merit_analyzer.types import AssertionState, AssertionStateGroup, StateFailureReason, TestCase
+from merit_analyzer.types import TestCase, TestCaseGroup, TestCaseValues, TestFailed
 
 async def test_cluster_failures_integration() -> None:
     analyses = [
@@ -10,12 +10,10 @@ async def test_cluster_failures_integration() -> None:
         "Formatting mismatch for CSV export columns.",
     ]
     assertions = [
-        AssertionState(
-            test_case=TestCase(input_value=f"case-{idx}", expected="expected"),
-            return_value=None,
-            passed=False,
-            confidence=1.0,
-            failure_reason=StateFailureReason(analysis=text),
+        TestCase(
+            test_case_values=TestCaseValues(case_input=f"case-{idx}", reference_value="expected"),
+            output_for_assertions=None,
+            test_case_result=TestFailed(errors=text),
         )
         for idx, text in enumerate(analyses)
     ]
