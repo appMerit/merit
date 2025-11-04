@@ -98,14 +98,74 @@ class CodeAnalyzer:
         self._lazy_import_sdk()
         
         # Define custom tool ONCE using @tool decorator (outside loop)
-        # Use simple type mapping per docs recommendation
+        # Use FULL JSON Schema for better Claude understanding
         @self._tool(
             "submit_analysis",
-            "REQUIRED: Call this tool to complete the analysis task and submit your findings about the test failure",
+            "REQUIRED: You MUST call this tool when you have completed your investigation and are ready to submit your final analysis of the test failure. This is the ONLY way to complete the task.",
             {
-                "root_cause": str,
-                "problematic_code": str,
-                "recommendations": str  # JSON string of array
+                "type": "object",
+                "properties": {
+                    "root_cause": {
+                        "type": "string",
+                        "description": "The root cause with file:line reference (e.g., 'calculator.py:35 - Missing zero check causes ZeroDivisionError')"
+                    },
+                    "problematic_code": {
+                        "type": "string",
+                        "description": "The exact code snippet that is causing the problem"
+                    },
+                    "recommendations": {
+                        "type": "array",
+                        "description": "List of 1-3 actionable recommendations with actual code fixes",
+                        "minItems": 1,
+                        "maxItems": 3,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["code", "prompt", "config", "design"],
+                                    "description": "Type of fix"
+                                },
+                                "title": {
+                                    "type": "string",
+                                    "description": "Short action-oriented title (e.g., 'Add zero division check')"
+                                },
+                                "description": {
+                                    "type": "string",
+                                    "description": "Complete explanation of the fix and why it's needed"
+                                },
+                                "file": {
+                                    "type": "string",
+                                    "description": "File path where the fix should be applied"
+                                },
+                                "line_number": {
+                                    "type": "string",
+                                    "description": "Line number(s) to modify (e.g., '6' or '6-8')"
+                                },
+                                "current_code": {
+                                    "type": "string",
+                                    "description": "The current buggy code snippet"
+                                },
+                                "fixed_code": {
+                                    "type": "string",
+                                    "description": "The corrected code that fixes the issue"
+                                },
+                                "priority": {
+                                    "type": "string",
+                                    "enum": ["high", "medium", "low"],
+                                    "description": "Priority level"
+                                },
+                                "effort": {
+                                    "type": "string",
+                                    "enum": ["high", "medium", "low"],
+                                    "description": "Implementation effort"
+                                }
+                            },
+                            "required": ["type", "title", "description", "file", "line_number", "current_code", "fixed_code", "priority", "effort"]
+                        }
+                    }
+                },
+                "required": ["root_cause", "problematic_code", "recommendations"]
             }
         )
         async def submit_analysis_handler(args):
@@ -113,7 +173,7 @@ class CodeAnalyzer:
             return {
                 "content": [{
                     "type": "text",
-                    "text": f"Analysis submitted: {args.get('root_cause', 'N/A')}"
+                    "text": f"✅ Analysis submitted successfully: {args.get('root_cause', 'N/A')}"
                 }]
             }
         
@@ -143,7 +203,19 @@ class CodeAnalyzer:
                     max_turns=8,
                     model=self.model,
                     stderr=lambda msg: None,  # Suppress errors
-                    system_prompt="""You analyze test failures. After investigating, call mcp__analyzer__submit_analysis to complete the task."""
+                    system_prompt="""You are a code debugger. Your task is to:
+1. Use Grep to search for relevant code
+2. Use Read to examine the problematic files
+3. Identify the root cause with file:line reference
+4. Create fix recommendations with ACTUAL CODE CHANGES (before/after)
+5. MANDATORY: Call mcp__analyzer__submit_analysis with your findings
+
+For each recommendation, you MUST provide:
+- The specific file and line number to change
+- The current buggy code snippet
+- The fixed code that resolves the issue
+
+YOU MUST call mcp__analyzer__submit_analysis before the conversation ends. This is REQUIRED to complete the task."""
                 )
                 
                 print(f"\n🔍 Analyzing group: {group.metadata.name}")
@@ -151,6 +223,7 @@ class CodeAnalyzer:
                 # Use ClaudeSDKClient (not query()) for custom tools support
                 response_text = ""
                 tool_result = None
+                tool_was_called = False
                 
                 async with self._ClaudeSDKClient(options=options) as client:
                     await client.query(prompt)
@@ -177,27 +250,60 @@ class CodeAnalyzer:
                                 elif type(block).__name__ == 'ToolUseBlock':
                                     # Check for ANY variation of submit_analysis
                                     if 'submit_analysis' in block.name.lower():
+                                        tool_was_called = True
                                         tool_result = block.input
-                
-                # Use tool result if available, otherwise parse text
-                if tool_result:
-                    # Parse recommendations from JSON string if needed
-                    recs = tool_result.get('recommendations', [])
-                    if isinstance(recs, str):
-                        try:
-                            import json
-                            recs = json.loads(recs)
-                        except:
-                            recs = []
                     
-                    analysis_data = {
-                        'root_cause': tool_result.get('root_cause', 'Unknown'),
-                        'problematic_code': tool_result.get('problematic_code', 'Not found'),
-                        'recommendations': recs
-                    }
-                else:
-                    # Fallback to text parsing
-                    analysis_data = self._parse_response(response_text)
+                    # Safety net: Retry if tool wasn't called on first attempt
+                    if not tool_was_called:
+                        print(f"   ⚠️  Tool not called, retrying with explicit request...")
+                        await client.query("Please call the mcp__analyzer__submit_analysis tool NOW with your findings.")
+                        
+                        async for message in client.receive_response():
+                            # Update token counts from retry
+                            if type(message).__name__ == 'ResultMessage' and hasattr(message, 'usage'):
+                                usage = message.usage
+                                if isinstance(usage, dict):
+                                    total_input_tokens += (
+                                        usage.get('input_tokens', 0) +
+                                        usage.get('cache_creation_input_tokens', 0) +
+                                        usage.get('cache_read_input_tokens', 0)
+                                    )
+                                    total_output_tokens += usage.get('output_tokens', 0)
+                            
+                            if hasattr(message, 'content'):
+                                for block in message.content:
+                                    if hasattr(block, 'text'):
+                                        response_text += block.text
+                                    elif type(block).__name__ == 'ToolUseBlock':
+                                        if 'submit_analysis' in block.name.lower():
+                                            tool_was_called = True
+                                            tool_result = block.input
+                        
+                        if tool_was_called:
+                            print(f"   ✅ Tool called successfully on retry")
+                
+                    # Use tool result if available, otherwise parse text
+                    if tool_result:
+                        # With new schema, recommendations should already be an array
+                        recs = tool_result.get('recommendations', [])
+                        # Handle legacy string format if needed
+                        if isinstance(recs, str):
+                            try:
+                                recs = json.loads(recs)
+                            except:
+                                recs = []
+                        # Ensure it's a list
+                        if not isinstance(recs, list):
+                            recs = []
+                        
+                        analysis_data = {
+                            'root_cause': tool_result.get('root_cause', 'Unknown'),
+                            'problematic_code': tool_result.get('problematic_code', 'Not found'),
+                            'recommendations': recs
+                        }
+                    else:
+                        # Fallback to text parsing
+                        analysis_data = self._parse_response(response_text)
                 
                 # Extract relevant test info
                 relevant_tests = [
@@ -260,14 +366,34 @@ class CodeAnalyzer:
                 error_msg = error_msg[:150] + "..."
             sample_error = error_msg
         
-        prompt = f"""Test failure pattern: {group.metadata.name}
+        prompt = f"""Analyze this test failure:
+
+Pattern: {group.metadata.name}
 Failed tests: {len(group.assertion_states)}
 Error: {sample_error}
 
-Find the root cause, then call mcp__analyzer__submit_analysis with:
-- root_cause: "file.py:line - description"
-- problematic_code: the code snippet
-- recommendations: JSON string like '[{{"type":"code","title":"Fix it","description":"how to fix","priority":"high","effort":"low"}}]'"""
+Steps:
+1. Use Grep to find relevant code
+2. Use Read to examine the buggy code
+3. Identify the root cause
+
+THEN YOU MUST call mcp__analyzer__submit_analysis with:
+- root_cause: "file.py:line - specific issue description"
+- problematic_code: "the exact code snippet causing the problem"
+- recommendations: array of fix objects, where EACH recommendation MUST include:
+  * type: "code" | "prompt" | "config" | "design"
+  * title: short description
+  * description: why this fix is needed
+  * file: the file path to modify
+  * line_number: which line(s) to change (e.g., "6" or "6-8")
+  * current_code: the buggy code snippet
+  * fixed_code: the corrected code that fixes the issue
+  * priority: "high" | "medium" | "low"
+  * effort: "high" | "medium" | "low"
+
+CRITICAL: For code-type recommendations, you MUST provide the actual fixed code, not just a description.
+
+DO NOT just describe the fix - you MUST call the tool to submit your analysis."""
         
         return prompt
 

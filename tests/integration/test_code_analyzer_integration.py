@@ -411,7 +411,17 @@ async def test_real_bugs_analysis(api_key, buggy_code_path):
         for j, rec in enumerate(result.recommendations[:3], 1):
             title = rec.get('title', 'No title')
             priority = rec.get('priority', 'unknown')
-            print(f"   {j}. [{priority.upper()}] {title}")
+            print(f"\n   {j}. [{priority.upper()}] {title}")
+            
+            # Show code changes if available
+            if rec.get('file'):
+                print(f"      📍 {rec.get('file')}:{rec.get('line_number', '?')}")
+            if rec.get('current_code'):
+                current = rec.get('current_code', '').replace('\n', ' ')[:60]
+                print(f"      ⚠️  Current: {current}...")
+            if rec.get('fixed_code'):
+                fixed = rec.get('fixed_code', '').replace('\n', ' ')[:60]
+                print(f"      ✅ Fixed: {fixed}...")
         
         # Verify basic structure
         assert result.group_name in ["DIVISION_BY_ZERO", "NONE_TYPE_ATTRIBUTE_ERRORS", "LIST_INDEX_ERRORS"]
@@ -425,30 +435,30 @@ async def test_real_bugs_analysis(api_key, buggy_code_path):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_cost_tracking(api_key, test_project_path):
+async def test_cost_tracking(api_key, buggy_code_path):
     """Test that token usage and cost are tracked correctly with a simple case."""
     group = create_test_group(
         name="DIVISION_BY_ZERO",
         description="Division by zero errors in calculation",
         test_cases=[
             {
-                'input': "numerator=10, denominator=0",
+                'input': "divide(10, 0)",
                 'expected': "Result calculated",
                 'actual': "ZeroDivisionError",
-                'error': "ZeroDivisionError: division by zero"
+                'error': "ZeroDivisionError: division by zero in calculator.divide()"
             },
             {
-                'input': "x=5, y=0",
+                'input': "calculate_average([])",
                 'expected': "5.0",
                 'actual': "ZeroDivisionError",
-                'error': "ZeroDivisionError: float division by zero"
+                'error': "ZeroDivisionError: division by zero in calculator.calculate_average()"
             }
         ]
     )
     
     # Analyze and capture output (token usage is printed)
     analyzer = CodeAnalyzer(
-        project_path=test_project_path,
+        project_path=buggy_code_path,
         api_key=api_key
     )
     results = await analyzer.analyze_multiple_groups([group])
@@ -469,7 +479,14 @@ async def test_cost_tracking(api_key, test_project_path):
     print(f"   {result.problematic_code[:200]}...")
     print(f"\n💡 Recommendations: {len(result.recommendations)}")
     for i, rec in enumerate(result.recommendations[:2], 1):
-        print(f"   {i}. {rec.get('title', 'No title')}")
+        print(f"\n   {i}. {rec.get('title', 'No title')}")
+        print(f"      Priority: {rec.get('priority', 'N/A')} | Effort: {rec.get('effort', 'N/A')}")
+        if rec.get('file'):
+            print(f"      📍 File: {rec.get('file')}:{rec.get('line_number', '?')}")
+        if rec.get('current_code'):
+            print(f"      ⚠️  Current: {rec.get('current_code', '')[:80]}...")
+        if rec.get('fixed_code'):
+            print(f"      ✅ Fixed: {rec.get('fixed_code', '')[:80]}...")
     
     print(f"\n{'='*60}")
     print("Check token usage output above for accurate cost tracking")

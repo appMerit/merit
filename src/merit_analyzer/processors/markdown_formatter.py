@@ -54,10 +54,25 @@ def _format_error_group(idx: int, result: AnalysisResult) -> str:
     if result.recommendations:
         lines.append("### Recommended Fixes\n")
         for rec_idx, rec in enumerate(result.recommendations, 1):
-            lines.append(f"**{rec_idx}. {rec.get('title', 'Fix')}** "
-                        f"(Priority: {rec.get('priority', 'medium').upper()}, "
-                        f"Effort: {rec.get('effort', 'medium')})\n")
-            lines.append(f"{rec.get('description', 'No description')}\n")
+            lines.append(f"#### {rec_idx}. {rec.get('title', 'Fix')}\n")
+            lines.append(f"**Priority:** {rec.get('priority', 'medium').upper()} | "
+                        f"**Effort:** {rec.get('effort', 'medium')} | "
+                        f"**Type:** {rec.get('type', 'code')}\n")
+            
+            # Description
+            lines.append(f"\n{rec.get('description', 'No description')}\n")
+            
+            # Code changes (if available)
+            if rec.get('file') and rec.get('line_number'):
+                lines.append(f"\n**Location:** `{rec.get('file')}:{rec.get('line_number')}`\n")
+                
+                if rec.get('current_code') and rec.get('fixed_code'):
+                    lines.append("\n**Current Code:**\n")
+                    lines.append(f"```python\n{rec.get('current_code')}\n```\n")
+                    lines.append("\n**Fixed Code:**\n")
+                    lines.append(f"```python\n{rec.get('fixed_code')}\n```\n")
+            
+            lines.append("")  # Empty line between recommendations
     
     # Relevant Test Results
     lines.append("### Relevant Test Results\n")
