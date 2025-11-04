@@ -30,17 +30,49 @@ class CodeAnalyzer:
     3. Generate fix recommendations
     """
 
-    def __init__(self, project_path: str, api_key: str, model: str = "claude-sonnet-4-20250514"):
+    def __init__(
+        self,
+        project_path: str,
+        api_key: str = None,
+        model: str = None,
+        use_bedrock: bool = None
+    ):
         """
         Initialize the code analyzer.
 
         Args:
             project_path: Path to the project to analyze
-            api_key: Anthropic API key
-            model: Claude model to use
+            api_key: Anthropic API key (if None, reads from ANTHROPIC_API_KEY env var)
+            model: Claude model to use (if None, uses provider default)
+            use_bedrock: Use AWS Bedrock (if None, reads from ANTHROPIC_PROVIDER env var)
         """
+        import os
+        from dotenv import load_dotenv
+        
+        # Reload .env to get fresh environment variables
+        load_dotenv(override=True)
+        
         self.project_path = Path(project_path)
-        self.api_key = api_key
+        
+        # Determine if using Bedrock
+        if use_bedrock is None:
+            use_bedrock = os.getenv('ANTHROPIC_PROVIDER', '').lower() == 'bedrock'
+        self.use_bedrock = use_bedrock
+        
+        # Set default model based on provider
+        if model is None:
+            if self.use_bedrock:
+                model = os.getenv('ANTHROPIC_MODEL', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0')
+            else:
+                model = 'claude-sonnet-4-20250514'
+        
+        # For Bedrock, we don't need Anthropic API key (uses AWS credentials)
+        # For direct Anthropic, get API key
+        if not self.use_bedrock:
+            self.api_key = api_key or os.getenv('ANTHROPIC_API_KEY')
+        else:
+            self.api_key = None  # Not needed for Bedrock
+        
         self.model = model
         
         # Lazy import Claude SDK components
@@ -195,6 +227,22 @@ class CodeAnalyzer:
             return {
                 'systemMessage': 'REMINDER: You must call mcp__analyzer__submit_analysis to submit your findings before ending.'
             }
+        
+        # Configure environment variables for provider
+        import os
+        if self.use_bedrock:
+            # Enable Bedrock integration for Claude Agent SDK
+            os.environ['CLAUDE_CODE_USE_BEDROCK'] = '1'
+            os.environ['AWS_REGION'] = os.getenv('AWS_REGION', 'us-east-1')
+            # AWS credentials should already be in env (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+            print(f"🔧 Using AWS Bedrock in region {os.environ['AWS_REGION']}")
+        else:
+            # For direct Anthropic, ensure API key is set
+            if self.api_key:
+                os.environ['ANTHROPIC_API_KEY'] = self.api_key
+            # Ensure Bedrock is disabled
+            os.environ.pop('CLAUDE_CODE_USE_BEDROCK', None)
+            print(f"🔧 Using Anthropic Direct API")
         
         # Configure options with MCP server (ONCE for all clusters)
         options = self._ClaudeAgentOptions(
@@ -411,8 +459,9 @@ DO NOT just describe the fix - you MUST call the tool to submit your analysis.""
 def analyze_groups(
     groups: List[AssertionStateGroup],
     project_path: str,
-    api_key: str,
-    model: str = "claude-sonnet-4-20250514"
+    api_key: str = None,
+    model: str = None,
+    use_bedrock: bool = None
 ) -> List[AnalysisResult]:
     """
     Convenience function to analyze error groups synchronously.
@@ -420,13 +469,14 @@ def analyze_groups(
     Args:
         groups: Error groups from clustering
         project_path: Path to project
-        api_key: Anthropic API key
-        model: Claude model to use
+        api_key: Anthropic API key (optional, reads from env if not provided)
+        model: Claude model to use (optional, uses provider default if not provided)
+        use_bedrock: Use AWS Bedrock (optional, reads from ANTHROPIC_PROVIDER env if not provided)
 
     Returns:
         List of analysis results
     """
-    analyzer = CodeAnalyzer(project_path, api_key, model)
+    analyzer = CodeAnalyzer(project_path, api_key, model, use_bedrock)
     
     # Run async analysis
     loop = asyncio.new_event_loop()

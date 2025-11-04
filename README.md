@@ -16,6 +16,8 @@ pip install -e .
 
 ### Usage
 
+#### Option 1: Anthropic Direct (Default)
+
 ```bash
 # Set your Anthropic API key
 export ANTHROPIC_API_KEY=your_key_here
@@ -23,6 +25,40 @@ export ANTHROPIC_API_KEY=your_key_here
 # Run analysis
 merit tests.csv -p ./your_project -o report.md
 ```
+
+#### Option 2: AWS Bedrock
+
+```bash
+# Configure AWS credentials
+export AWS_ACCESS_KEY_ID=your_access_key
+export AWS_SECRET_ACCESS_KEY=your_secret_key
+export AWS_REGION=us-east-1
+
+# Enable Bedrock
+export ANTHROPIC_PROVIDER=bedrock
+
+# Run analysis (uses Claude Sonnet 4.5 on Bedrock)
+merit tests.csv -p ./your_project -o report.md
+```
+
+**Or use a `.env` file:**
+
+```bash
+# .env file
+ANTHROPIC_PROVIDER=bedrock
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+AWS_REGION=us-east-1
+```
+
+Then run with `uv`:
+```bash
+uv run merit tests.csv -p ./your_project -o report.md
+```
+
+**Provider Options:**
+- `anthropic` (default) - Direct Anthropic API with Claude Sonnet 4
+- `bedrock` - AWS Bedrock with Claude Sonnet 4.5 (cross-region inference)
 
 ### CSV Format
 
