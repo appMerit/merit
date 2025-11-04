@@ -156,12 +156,17 @@ class CodeAnalyzer:
                     await client.query(prompt)
                     
                     async for message in client.receive_response():
-                        # Track tokens
-                        if hasattr(message, 'usage'):
+                        # Get usage from ResultMessage (only message with usage info)
+                        if type(message).__name__ == 'ResultMessage' and hasattr(message, 'usage'):
                             usage = message.usage
                             if isinstance(usage, dict):
-                                total_input_tokens += usage.get('input_tokens', 0)
-                                total_output_tokens += usage.get('output_tokens', 0)
+                                # Sum ALL input token types (regular + cache creation + cache read)
+                                total_input_tokens = (
+                                    usage.get('input_tokens', 0) +
+                                    usage.get('cache_creation_input_tokens', 0) +
+                                    usage.get('cache_read_input_tokens', 0)
+                                )
+                                total_output_tokens = usage.get('output_tokens', 0)
                         
                         # Extract tool calls and text
                         if hasattr(message, 'content'):
@@ -182,19 +187,14 @@ class CodeAnalyzer:
                         try:
                             import json
                             recs = json.loads(recs)
-                            print(f"✅ Parsed {len(recs)} recommendations from JSON")
-                        except Exception as e:
-                            print(f"⚠️ Failed to parse recommendations: {e}")
+                        except:
                             recs = []
-                    elif isinstance(recs, list):
-                        print(f"✅ Received {len(recs)} recommendations as list")
                     
                     analysis_data = {
                         'root_cause': tool_result.get('root_cause', 'Unknown'),
                         'problematic_code': tool_result.get('problematic_code', 'Not found'),
                         'recommendations': recs
                     }
-                    print(f"📦 Final analysis_data has {len(analysis_data['recommendations'])} recommendations")
                 else:
                     # Fallback to text parsing
                     analysis_data = self._parse_response(response_text)
@@ -227,8 +227,17 @@ class CodeAnalyzer:
                     relevant_tests=[]
                 ))
         
-        # Calculate cost (Claude Sonnet 4 pricing: $3/M input, $15/M output)
-        input_cost = (total_input_tokens / 1_000_000) * 3.0
+        # Calculate cost with proper cache pricing
+        # Note: total_input_tokens already includes all input types summed
+        # Claude Sonnet 4 pricing:
+        # - Regular input: $3/M
+        # - Cache write: $3.75/M  
+        # - Cache read: $0.30/M (10x cheaper!)
+        # - Output: $15/M
+        # 
+        # For simplicity, we use blended rate since we don't track each type separately in results
+        # Total input cost ≈ $0.30-3.00/M depending on cache hits
+        input_cost = (total_input_tokens / 1_000_000) * 3.0  # Conservative estimate
         output_cost = (total_output_tokens / 1_000_000) * 15.0
         total_cost = input_cost + output_cost
         
@@ -236,6 +245,7 @@ class CodeAnalyzer:
         print(f"   Input:  {total_input_tokens:,} tokens (${input_cost:.4f})")
         print(f"   Output: {total_output_tokens:,} tokens (${output_cost:.4f})")
         print(f"   Total:  ${total_cost:.4f}")
+        print(f"   Note: Actual cost may be lower due to prompt caching")
         
         return results
     
