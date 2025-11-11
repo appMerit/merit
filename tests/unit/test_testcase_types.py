@@ -1,7 +1,7 @@
 import asyncio
 import re
 
-from merit_analyzer.types.testcase import TestCase, TestCaseValues, TestFailed
+from merit_analyzer.types.case import TestCase, TestCaseValues, ErrorDescription
 
 
 def test_generate_error_data_integration():
@@ -47,18 +47,17 @@ def test_generate_error_data_integration():
     }
 
     test_case = TestCase(
-        test_case_values=TestCaseValues(
+        case_data=TestCaseValues(
             case_input=listing_description,
             reference_value=str(expected_record),
         ),
         output_for_assertions=actual_record,
-        test_case_result=None,
+        assertions_result=None,
     )
 
     asyncio.run(test_case.generate_error_data())
-
-    assert isinstance(test_case.test_case_result, TestFailed)
-    errors = test_case.test_case_result.errors
+    assert test_case.assertions_result is not None
+    errors = test_case.assertions_result.errors
     assert len(errors) == 5
     keyword_groups = [
         [r"odometer", r"20(?:[, ]?000|k)", r"89(?:[, ]?000|k)"],

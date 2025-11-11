@@ -1,5 +1,5 @@
 from merit_analyzer.processors.clustering import cluster_failures
-from merit_analyzer.types import TestCase, TestCaseGroup, TestCaseValues, TestFailed
+from merit_analyzer.types import TestCase, TestCaseGroup, TestCaseValues, ErrorDescription, AssertionsResult
 
 async def test_cluster_failures_integration() -> None:
     analyses = [
@@ -11,9 +11,9 @@ async def test_cluster_failures_integration() -> None:
     ]
     assertions = [
         TestCase(
-            test_case_values=TestCaseValues(case_input=f"case-{idx}", reference_value="expected"),
+            case_data=TestCaseValues(case_input=f"case-{idx}", reference_value="expected"),
             output_for_assertions=None,
-            test_case_result=TestFailed(errors=text),
+            assertions_result=AssertionsResult(False, [text]),
         )
         for idx, text in enumerate(analyses)
     ]

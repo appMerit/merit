@@ -79,7 +79,7 @@ async def cluster_failures(failed_test_cases: List[TestCase]) -> List[TestCaseGr
     embeddings = await llm_client.generate_embeddings(
         model="text-embedding-3-small",
         input_values=[str(test_case.test_case_result.errors) for test_case in failed_test_cases], #type: ignore
-    )
+    ) #TODO: if test_case.test_case_result.errors have multiple errors - cluster them separately 
 
     labels = HDBSCAN(
         min_cluster_size=2, 

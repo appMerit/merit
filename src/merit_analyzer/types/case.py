@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 from dataclasses import dataclass, asdict
-from typing import Any, List, Literal, Tuple
+from typing import Any, List, Literal, Tuple, TypedDict
 
-from ..engines import llm_client
+from .assertion import AssertionsResult
+from .error import ErrorDescription, ErrorAnalysis
+
+from ..core import get_llm_client
 
 # Relevant prompts
 
@@ -62,28 +65,32 @@ GENERATE_ERROR_DATA = """
 
 @dataclass
 class TestCase:
-    test_case_values: TestCaseValues
+    case_data: TestCaseValues
     output_for_assertions: Any | None
-    test_case_result: TestFailed | TestPassed | None
+    assertions_result: AssertionsResult | None
 
     async def generate_error_data(self) -> None:
+        llm_client = await get_llm_client()
         error_data = {
-            "test_input_value": self.test_case_values.case_input,
-            "expected_value": self.test_case_values.reference_value,
+            "test_input_value": self.case_data.case_input,
+            "expected_value": self.case_data.reference_value,
             "actual_value": self.output_for_assertions
         }
         error_message = await llm_client.create_object(
             model="gpt-5-2025-08-07", 
             prompt=GENERATE_ERROR_DATA.format(error_data=error_data), 
-            schema=TestFailed
+            schema=ErrorDescription
             )
-        self.test_case_result = error_message
+        if not self.assertions_result:
+            self.assertions_result = AssertionsResult(False, [])
+
+        self.assertions_result.errors = error_message.errors
 
 @dataclass
 class TestCaseGroup:
     metadata: GroupMetadata
     test_cases: List[TestCase]
-    grouped_by: Literal["failed", "passed"]
+    error_analysis: ErrorAnalysis | None
 
 @dataclass
 class TestCaseValues:
@@ -95,10 +102,3 @@ class TestCaseValues:
 class GroupMetadata(BaseModel):
     name: str = Field(description="name for the cluster formatted in screaming snake case (e.g, INCORRECT_PRICE_PARSING)")
     description: str = Field(description="What happens in which circumstances.")
-
-class TestFailed(BaseModel):
-    errors: List[str] | str = Field(description="Explain briefly why did AI system return values that don't match the expected one")
-
-@dataclass
-class TestPassed:
-    pass

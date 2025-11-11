@@ -9,7 +9,13 @@ from merit_analyzer.core.local_models.embeddings import (
 @pytest.mark.asyncio
 async def test_local_engine_generates_embeddings_from_granite_weights() -> None:
     engine = LocalEmbeddingsEngine()
-    inputs = ["alpha prompt", "beta prompt"]
+    inputs = [
+        "User service timed out during login attempts.",
+        "Login request failed because the user service took too much time.",
+        "Payment gateway rejected the transaction with code 502.",
+        "Charge attempt hit an error from the Stripe gateway.",
+        "Formatting mismatch for CSV export columns.",
+    ]
 
     vectors = await engine.generate_embeddings(inputs, model=MODEL_ID)
 
