@@ -110,4 +110,4 @@ async def get_llm_client() -> LLMAbstractHandler:
         return cached_client
 
 
-__all__ = ["AGENT", "TOOL", "FILE_ACCESS_POLICY", "get_llm_client"]
+__all__ = ["AGENT", "TOOL", "FILE_ACCESS_POLICY", "get_llm_client", "LLMAbstractHandler"]

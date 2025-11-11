@@ -1,14 +1,13 @@
 """Handle LLM calls here"""
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Type, TypeVar
+from typing import Any, Callable, Dict, List, Type, TypeVar, overload
 
 from pydantic import BaseModel
 
 from .policies import AGENT, TOOL, FILE_ACCESS_POLICY
 
-T = TypeVar("T", bound=BaseModel)
-U = TypeVar("U", str, BaseModel)
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 # To add other LLM providers — inherit from the abstract LLM handler
 
@@ -25,7 +24,7 @@ class LLMAbstractHandler(ABC):
         pass
 
     @abstractmethod
-    async def create_object(self, prompt: str, schema: Type[T], model: str | None = None) -> T:
+    async def create_object(self, prompt: str, schema: Type[ModelT], model: str | None = None) -> ModelT:
         pass
 
     @abstractmethod
@@ -37,14 +36,20 @@ class LLMAbstractHandler(ABC):
         file_access: FILE_ACCESS_POLICY = FILE_ACCESS_POLICY.READ_ONLY,
         standard_tools: List[TOOL] = [],
         extra_tools: List[Callable] = [],
-        output_type: type[U] = str):
+        output_type: type[ModelT] | type[str] = str):
         pass
+
+    @overload
+    async def run_agent(self, agent: AGENT, task: str, output_type: type[str]) -> str: ...
+
+    @overload
+    async def run_agent(self, agent: AGENT, task: str, output_type: type[ModelT]) -> ModelT: ...
 
     @abstractmethod
     async def run_agent(
         self,
         agent: AGENT,
         task: str,
-        output_type: type[U]
-        ) -> U:
+        output_type: type[BaseModel] | type[str]
+        ) -> BaseModel | str:
         pass

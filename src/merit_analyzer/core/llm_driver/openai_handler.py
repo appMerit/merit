@@ -4,7 +4,7 @@ from agents import Agent, Runner, function_tool
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from .abstract_provider_handler import LLMAbstractHandler, U, T
+from .abstract_provider_handler import LLMAbstractHandler, ModelT
 from .local_tools import read, write, edit, grep, glob, ls, todo
 from .policies import AGENT, TOOL, FILE_ACCESS_POLICY
 
@@ -53,9 +53,9 @@ class LLMOpenAI(LLMAbstractHandler):
     async def create_object(
             self, 
             prompt: str, 
-            schema: Type[T], 
+            schema: Type[ModelT], 
             model: str | None = None
-            ) -> T:
+            ) -> ModelT:
         model = model or self.default_big_model
         response = self.client.responses.parse(
             model=model, 
@@ -75,7 +75,7 @@ class LLMOpenAI(LLMAbstractHandler):
         file_access: FILE_ACCESS_POLICY = FILE_ACCESS_POLICY.READ_ONLY,
         standard_tools: List[TOOL] = [],
         extra_tools: List[Callable] = [],
-        output_type: type[U] = str
+        output_type: type[ModelT] | type[str] = str
         ):
         model = model or self.default_big_model 
         tools = []
@@ -111,8 +111,8 @@ class LLMOpenAI(LLMAbstractHandler):
         self,
         agent: AGENT,
         task: str,
-        output_type: type[U]
-    ) -> U:
+        output_type: type[ModelT] | type[str]
+    ) -> ModelT | str:
         compiled = self.compiled_agents[agent]
         result = await Runner.run(compiled, input=task)
         return result.final_output_as(output_type)

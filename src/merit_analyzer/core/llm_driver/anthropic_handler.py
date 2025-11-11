@@ -13,7 +13,7 @@ from claude_agent_sdk import (
     tool
 )
 
-from .abstract_provider_handler import LLMAbstractHandler, U, T
+from .abstract_provider_handler import LLMAbstractHandler, ModelT
 from .local_tools import read, write, edit, grep, glob, ls, todo
 from .policies import AGENT, TOOL, FILE_ACCESS_POLICY
 
@@ -68,9 +68,9 @@ class LLMClaude(LLMAbstractHandler):
     async def create_object(
             self, 
             prompt: str, 
-            schema: Type[T], 
+            schema: Type[ModelT], 
             model: str | None = None
-            ) -> T:
+            ) -> ModelT:
         model = model or self.default_big_model
         client = self.client
         tools = [{
@@ -101,7 +101,7 @@ class LLMClaude(LLMAbstractHandler):
         file_access: FILE_ACCESS_POLICY = FILE_ACCESS_POLICY.READ_ONLY,
         standard_tools: List[TOOL] = [],
         extra_tools: List[Callable] = [],
-        output_type: type[U] = str):
+        output_type: type[ModelT] | type[str] = str):
 
         model = model or self.default_big_model 
         
@@ -139,8 +139,8 @@ class LLMClaude(LLMAbstractHandler):
         self,
         agent: AGENT,
         task: str,
-        output_type: type[U] = str
-        ) -> U:
+        output_type: type[ModelT] | type[str] = str
+        ) -> ModelT | str:
 
         options = self.compiled_agents[agent]
         client_response = None
@@ -160,7 +160,7 @@ class LLMClaude(LLMAbstractHandler):
             raise ValueError
                     
         if isinstance(client_response, output_type):
-            return cast(U, client_response)
+            return cast(ModelT, client_response)
         
         elif issubclass(output_type, BaseModel) and isinstance(client_response, str):
             parsed = await self.create_object(
