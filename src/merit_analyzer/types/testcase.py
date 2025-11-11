@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from dataclasses import dataclass, asdict
 from typing import Any, List, Literal, Tuple
 
-from ..engines import llm_client
+from ..core import get_llm_client
 
 # Relevant prompts
 
@@ -67,6 +67,7 @@ class TestCase:
     test_case_result: TestFailed | TestPassed | None
 
     async def generate_error_data(self) -> None:
+        llm_client = await get_llm_client()
         error_data = {
             "test_input_value": self.test_case_values.case_input,
             "expected_value": self.test_case_values.reference_value,

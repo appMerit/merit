@@ -2,7 +2,9 @@ from enum import Enum
 
 class AGENT(Enum):
     ERROR_ANALYZER = "error_analyzer"
-    TEST_SUITE_SCHEMA_BUILDER = "test_suite_schema_builder"
+    SUITE_SCHEMA_BUILDER = "suite_schema_builder"
+    TEST = "test"
+    
 
 class TOOL(Enum):
     READ = "read"  # Return file contents without changing them.
