@@ -47,3 +47,13 @@ Flags are optional; omit the vendor overrides to rely on existing environment va
 1. Build the csv-to-data_objects parser
 2. Build the error-to-code mapping
 3. Build the output processor
+
+## License
+
+This software is licensed under the Merit Commercial Evaluation License (v1.0).
+
+You may use this software for evaluation and testing purposes. Continued use beyond the evaluation period requires a commercial license from Merit.
+
+See [LICENSE](LICENSE) for full terms.
+
+For commercial licensing or support, visit: https://appmerit.com
