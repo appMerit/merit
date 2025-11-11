@@ -63,9 +63,7 @@ async def build_llm_client(model_vendor: str, inference_vendor: str) -> LLMAbstr
         case "anthropic", "anthropic":
             from anthropic import Anthropic
             client = LLMClaude(Anthropic())
-            # Use standard Anthropic API model names (without prefix/suffix)
-            client.default_big_model = "claude-sonnet-4-20250514"
-            client.default_small_model = "claude-3-5-haiku-20241022"
+            # Use class defaults: claude-sonnet-4-5, claude-haiku-4-5
 
         case _, _:
             if mv not in SUPPORTED:

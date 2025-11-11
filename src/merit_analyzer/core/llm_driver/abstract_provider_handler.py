@@ -1,6 +1,7 @@
 """Handle LLM calls here"""
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Type, TypeVar
 
 from pydantic import BaseModel
@@ -37,7 +38,8 @@ class LLMAbstractHandler(ABC):
         file_access: FILE_ACCESS_POLICY = FILE_ACCESS_POLICY.READ_ONLY,
         standard_tools: List[TOOL] = [],
         extra_tools: List[Callable] = [],
-        output_type: type[U] = str):
+        output_type: type[U] = str,
+        cwd: str | Path | None = None):
         pass
 
     @abstractmethod

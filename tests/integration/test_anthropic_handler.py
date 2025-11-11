@@ -270,32 +270,40 @@ class TestAnthropicVertex:
 class TestAgentFileOperations:
     """Test various file operations with compiled agents."""
     
-    @pytest.fixture(autouse=True)
-    async def setup(self):
-        """Setup client."""
-        os.environ["MODEL_VENDOR"] = "anthropic"
-        os.environ["INFERENCE_VENDOR"] = "anthropic"
-        # Clear cache to ensure fresh client
+    async def _get_fresh_client(self):
+        """Get a fresh client for each test to avoid state pollution."""
         import merit_analyzer.core.llm_driver as llm_driver
+        import asyncio
+        # Clear ALL cached state
         llm_driver.cached_client = None
         llm_driver.cached_key = None
-        self.client = await get_llm_client()
+        llm_driver.validated_once = False
+        os.environ["MODEL_VENDOR"] = "anthropic"
+        os.environ["INFERENCE_VENDOR"] = "anthropic"
+        # Clear Bedrock/Vertex flags that previous tests may have set
+        os.environ.pop("CLAUDE_CODE_USE_BEDROCK", None)
+        os.environ.pop("CLAUDE_CODE_USE_VERTEX", None)
+        # Small delay to let API settle
+        await asyncio.sleep(0.5)
+        return await get_llm_client()
     
     async def test_agent_read_multiple_files(self, temp_workspace):
         """Test agent reading multiple files."""
+        client = await self._get_fresh_client()
         original_cwd = Path.cwd()
         os.chdir(temp_workspace)
         
         try:
-            self.client.compile_agent(
+            client.compile_agent(
                 agent_name=AGENT.ERROR_ANALYZER,
                 system_prompt="Read files and analyze them.",
                 file_access=FILE_ACCESS_POLICY.READ_ONLY,
-                standard_tools=[TOOL.READ, TOOL.LS, TOOL.GLOB]
+                standard_tools=[TOOL.READ, TOOL.LS, TOOL.GLOB],
+                cwd=temp_workspace
             )
             
             task = "Find all .txt files in the data directory and tell me how many there are."
-            result = await self.client.run_agent(
+            result = await client.run_agent(
                 agent=AGENT.ERROR_ANALYZER,
                 task=task,
                 output_type=str
@@ -309,19 +317,21 @@ class TestAgentFileOperations:
     
     async def test_agent_write_file(self, temp_workspace):
         """Test agent writing a new file."""
+        client = await self._get_fresh_client()
         original_cwd = Path.cwd()
         os.chdir(temp_workspace)
         
         try:
-            self.client.compile_agent(
+            client.compile_agent(
                 agent_name=AGENT.TEST_SUITE_SCHEMA_BUILDER,
                 system_prompt="You can write files.",
                 file_access=FILE_ACCESS_POLICY.READ_AND_WRITE,
-                standard_tools=[TOOL.WRITE, TOOL.READ]
+                standard_tools=[TOOL.WRITE, TOOL.READ],
+                cwd=temp_workspace
             )
             
             task = "Create a new file called output.txt with the content 'Test output from agent'."
-            result = await self.client.run_agent(
+            result = await client.run_agent(
                 agent=AGENT.TEST_SUITE_SCHEMA_BUILDER,
                 task=task,
                 output_type=str
@@ -339,19 +349,21 @@ class TestAgentFileOperations:
     
     async def test_agent_edit_file(self, temp_workspace):
         """Test agent editing an existing file."""
+        client = await self._get_fresh_client()
         original_cwd = Path.cwd()
         os.chdir(temp_workspace)
         
         try:
-            self.client.compile_agent(
+            client.compile_agent(
                 agent_name=AGENT.TEST_SUITE_SCHEMA_BUILDER,
                 system_prompt="You can read and edit files.",
                 file_access=FILE_ACCESS_POLICY.READ_AND_WRITE,
-                standard_tools=[TOOL.READ, TOOL.EDIT]
+                standard_tools=[TOOL.READ, TOOL.EDIT],
+                cwd=temp_workspace
             )
             
             task = 'Read input.txt and replace "World" with "Universe".'
-            result = await self.client.run_agent(
+            result = await client.run_agent(
                 agent=AGENT.TEST_SUITE_SCHEMA_BUILDER,
                 task=task,
                 output_type=str
@@ -368,19 +380,21 @@ class TestAgentFileOperations:
     
     async def test_agent_grep_search(self, temp_workspace):
         """Test agent searching files with grep."""
+        client = await self._get_fresh_client()
         original_cwd = Path.cwd()
         os.chdir(temp_workspace)
         
         try:
-            self.client.compile_agent(
+            client.compile_agent(
                 agent_name=AGENT.ERROR_ANALYZER,
                 system_prompt="Search files for patterns.",
                 file_access=FILE_ACCESS_POLICY.READ_ONLY,
-                standard_tools=[TOOL.GREP, TOOL.READ]
+                standard_tools=[TOOL.GREP, TOOL.READ],
+                cwd=temp_workspace
             )
             
             task = "Search for the word 'Content' in all files."
-            result = await self.client.run_agent(
+            result = await client.run_agent(
                 agent=AGENT.ERROR_ANALYZER,
                 task=task,
                 output_type=str
