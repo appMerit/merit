@@ -77,7 +77,6 @@ async def cluster_failures(failed_test_cases: List[TestCase]) -> List[TestCaseGr
     llm_client = await get_llm_client()
 
     embeddings = await llm_client.generate_embeddings(
-        model="text-embedding-3-small",
         input_values=[
             "\n".join(test_case.assertions_result.errors if test_case.assertions_result else [])
             for test_case in failed_test_cases
@@ -109,7 +108,6 @@ async def cluster_failures(failed_test_cases: List[TestCase]) -> List[TestCaseGr
             )
         else:
             metadata = await llm_client.create_object(
-                model="gpt-5-2025-08-07",
                 prompt=CLUSTERING_PROMPT.format(errors=cluster_errors),
                 schema=GroupMetadata
             )

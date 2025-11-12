@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from .abstract_provider_handler import LLMAbstractHandler, ModelT
 from .local_tools import read, write, edit, grep, glob, ls, todo
 from .policies import AGENT, TOOL, FILE_ACCESS_POLICY
+from .defaults import MAX_AGENT_TURNS
 
 load_dotenv()
 
@@ -44,9 +45,8 @@ class LLMOpenAI(LLMAbstractHandler):
             input_values: List[str], 
             model: str | None = None
             ) -> List[List[float]]:
-        model = model or self.default_embedding_model
         response = self.client.embeddings.create(
-            model=model, 
+            model=model or self.default_embedding_model, 
             input=input_values
             )
         return [item.embedding for item in response.data]
@@ -79,7 +79,6 @@ class LLMOpenAI(LLMAbstractHandler):
         cwd: str | Path | None = None,
         output_type: type[ModelT] | type[str] = str
         ):
-        model = model or self.default_big_model 
         tools = []
         for standard_tool in standard_tools:
             if standard_tool not in file_access.value:
@@ -102,9 +101,9 @@ class LLMOpenAI(LLMAbstractHandler):
         agent = Agent(
             name=agent_name.value,
             instructions=system_prompt,
-            model=model,
+            model=model or self.default_big_model,
             tools=tools,
-            output_type=output_type, #type: ignore
+            output_type=output_type,
         )
         self.compiled_agents[agent_name] = agent
         return
@@ -113,8 +112,13 @@ class LLMOpenAI(LLMAbstractHandler):
         self,
         agent: AGENT,
         task: str,
-        output_type: type[ModelT] | type[str]
+        output_type: type[ModelT] | type[str],
+        max_turns: int | None = None
     ) -> ModelT | str:
         compiled = self.compiled_agents[agent]
-        result = await Runner.run(compiled, input=task)
+        result = await Runner.run(
+            compiled, 
+            input=task, 
+            max_turns=max_turns or MAX_AGENT_TURNS
+            )
         return result.final_output_as(output_type)

@@ -79,8 +79,7 @@ class TestCase:
         client = await get_llm_client()
         error_message = await client.create_object(
             prompt=GENERATE_ERROR_DATA.format(error_data=error_data), 
-            schema=ErrorDescription,
-            model=None
+            schema=ErrorDescription
             )
         if not self.assertions_result:
             self.assertions_result = AssertionsResult(False, [])
