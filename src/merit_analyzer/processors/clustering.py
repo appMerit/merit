@@ -1,10 +1,13 @@
 from collections import defaultdict
+import warnings
 
 from hdbscan import HDBSCAN
 from typing import List
 
 from ..core import get_llm_client
 from ..types import TestCase, TestCaseGroup, GroupMetadata
+
+warnings.filterwarnings('ignore', category=FutureWarning, module='sklearn')
 
 CLUSTERING_PROMPT = """
 <task>

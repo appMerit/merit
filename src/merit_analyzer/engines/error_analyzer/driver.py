@@ -18,7 +18,7 @@ class ErrorAnalyzer:
         TOOL.LS, 
         TOOL.READ]
 
-    async def run(self, failed_group: TestCaseGroup) -> ErrorAnalysis:
+    async def run(self, failed_group: TestCaseGroup, code_directory: Path | None = None) -> ErrorAnalysis:
         """Analyze failed test groups and provide solutions for each"""
 
         client = await get_llm_client()
@@ -30,7 +30,7 @@ class ErrorAnalyzer:
                 output_type=self.output_type,
                 standard_tools=self.standard_tools,
                 system_prompt=self.system_prompt,
-                cwd=Path.cwd(),
+                cwd=code_directory or Path.cwd(),
             )
 
         schema = json.dumps(ErrorAnalysis.model_json_schema(), indent=2)
