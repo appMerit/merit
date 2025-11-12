@@ -4,7 +4,6 @@ class AGENT(Enum):
     ERROR_ANALYZER = "error_analyzer"
     SUITE_SCHEMA_BUILDER = "suite_schema_builder"
     TEST = "test"
-    
 
 class TOOL(Enum):
     READ = "read"  # Return file contents without changing them.

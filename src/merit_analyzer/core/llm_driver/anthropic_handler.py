@@ -53,18 +53,16 @@ class LLMClaude(LLMAbstractHandler):
 
     def __init__(self, client: Anthropic | AnthropicBedrock | AnthropicVertex):
         self.client = client
-        self.compiled_agents: Dict[AGENT, ClaudeAgentOptions] = {}  # Instance variable, not class variable
+        self.compiled_agents: Dict[AGENT, ClaudeAgentOptions] = {}
 
     async def generate_embeddings(
             self, 
             input_values: List[str], 
             model: str | None = None
             ) -> List[List[float]]:
-        model = model or self.default_embedding_model
         return await local_embeddings_engine.generate_embeddings(
-            input_values=input_values,
-            model=model,
-        )
+            input_values=input_values
+            )
 
     async def create_object(
             self, 
@@ -72,19 +70,18 @@ class LLMClaude(LLMAbstractHandler):
             schema: Type[ModelT], 
             model: str | None = None
             ) -> ModelT:
-        model = model or self.default_big_model
         client = self.client
-        tools = [{
+        tools: List[ToolParam] = [{
             "name": "emit_structured_result",
             "description": "Return the result strictly as JSON matching input_schema. No external effects.",
             "input_schema": schema.model_json_schema(),
         }]
         msg = client.messages.create(
-            model=model,
+            model=model or self.default_big_model,
             temperature=0,
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
-            tools=tools, #type: ignore
+            tools=tools,
             tool_choice={"type": "tool", "name": "emit_structured_result"}
         )
         tool_call = next(b for b in msg.content if isinstance(b, ToolUseBlock))
@@ -105,10 +102,14 @@ class LLMClaude(LLMAbstractHandler):
         output_type: type[ModelT] | type[str] = str,
         cwd: str | Path | None = None):
 
-        model = model or self.default_big_model 
+        agent_config = ClaudeAgentOptions(
+            model=model or self.default_big_model,
+            allowed_tools=[self.standard_tools_map[tool] for tool in standard_tools],
+            permission_mode=self.file_access_map[file_access], #type: ignore
+            system_prompt=system_prompt,
+            cwd=cwd
+            )
         
-        allowed_tools = [self.standard_tools_map[tool] for tool in standard_tools]
-        mcp_servers = None
         parsed_tools = []
 
         for extra_tool in extra_tools:
@@ -121,31 +122,26 @@ class LLMClaude(LLMAbstractHandler):
                 description=description, 
                 input_schema=input_schema)(extra_tool)
             parsed_tools.append(parsed_tool)
-            allowed_tools.append(f"mcp__extra_tools__{name}")
+            agent_config.allowed_tools.append(f"mcp__extra_tools__{name}")
 
         if parsed_tools:
-            mcp_servers = {"extra_tools": create_sdk_mcp_server(name="extra_tools", tools=parsed_tools)}
+            agent_config.mcp_servers={
+                "extra_tools": create_sdk_mcp_server(name="extra_tools", tools=parsed_tools)
+                }
 
-        file_access_policy = self.file_access_map[file_access]
-
-        self.compiled_agents[agent_name] = ClaudeAgentOptions(
-            model=model,
-            allowed_tools=allowed_tools,
-            mcp_servers=mcp_servers, #type: ignore
-            permission_mode=file_access_policy, #type: ignore
-            system_prompt=system_prompt,
-            cwd=cwd,
-        )
+        self.compiled_agents[agent_name] = agent_config
         return
     
     async def run_agent(
         self,
         agent: AGENT,
         task: str,
-        output_type: type[ModelT] | type[str] = str
+        output_type: type[ModelT] | type[str] = str,
+        max_turns: int | None = None
         ) -> ModelT | str:
 
         options = self.compiled_agents[agent]
+        options.max_turns = max_turns
         client_response = None
 
         async with ClaudeSDKClient(options=options) as client:
@@ -166,10 +162,28 @@ class LLMClaude(LLMAbstractHandler):
             return cast(ModelT, client_response)
         
         elif issubclass(output_type, BaseModel) and isinstance(client_response, str):
+            prompt_template = f"""
+                Your job is to transform the following text into a JSON and submit result
+                using the 'emit_structured_result' tool. Be very careful with the JSON
+                schema: read all field descriptions, check all required and optional types,
+                and parse the data according to this schema.
+                
+                While parsing, you can rephrase / rewrite the original information to make it
+                better align with the schema.
+
+                <information_for_parsing>
+                    {client_response}
+                </information_for_parsing>
+
+                <json_schema>
+                    {output_type.model_json_schema()}
+                </json_schema>
+                """
             parsed = await self.create_object(
-                model="",
+                model=self.default_small_model,
                 schema=output_type,
-                prompt="")
+                prompt=prompt_template
+                )
             return parsed
         
         else:

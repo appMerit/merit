@@ -52,6 +52,7 @@ class LLMAbstractHandler(ABC):
         self,
         agent: AGENT,
         task: str,
-        output_type: type[BaseModel] | type[str]
+        output_type: type[BaseModel] | type[str],
+        max_turns: int | None = None
         ) -> BaseModel | str:
         pass
