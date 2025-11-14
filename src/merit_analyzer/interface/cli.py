@@ -8,7 +8,7 @@ from typing import Sequence
 
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.progress import track
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from ..engines.error_analyzer.driver import ErrorAnalyzer
 from ..processors.clustering import cluster_failures
@@ -78,36 +78,42 @@ class AnalyzeCommand:
         asyncio.run(self.execute())
 
     async def execute(self) -> None:
-        self.console.print(f"Parsing test cases from {self.csv_path}...", style="bold cyan")
-        test_cases = parse_test_cases_from_csv(str(self.csv_path))
-        failed_cases = [
-            case for case in test_cases if not case.assertions_result or not case.assertions_result.passed
-        ]
-        if not failed_cases:
-            format_analysis_results([], str(self.report_path))
-            self.console.print("No failing tests found. Blank report generated.", style="bold green")
-            return
-
-        self.console.print("Generating missing error descriptions...", style="bold cyan")
-        for case in track(
-            failed_cases,
-            description="Generating error descriptions",
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
             console=self.console,
-        ):
-            needs_errors = not case.assertions_result or not case.assertions_result.errors
-            if needs_errors:
-                await case.generate_error_data()
+        ) as progress:
+            task1 = progress.add_task("[cyan]Parsing test cases...", total=None)
+            test_cases = parse_test_cases_from_csv(str(self.csv_path))
+            progress.update(task1, completed=True)
+            
+            failed_cases = [
+                case for case in test_cases if not case.assertions_result or not case.assertions_result.passed
+            ]
+            if not failed_cases:
+                format_analysis_results([], str(self.report_path))
+                self.console.print("No failing tests found. Blank report generated.", style="bold green")
+                return
 
-        self.console.print("Clustering failures...", style="bold cyan")
-        groups = await cluster_failures(failed_cases)
+            task2 = progress.add_task("[cyan]Generating error descriptions...", total=len(failed_cases))
+            for case in failed_cases:
+                needs_errors = not case.assertions_result or not case.assertions_result.errors
+                if needs_errors:
+                    await case.generate_error_data()
+                progress.advance(task2)
+            progress.update(task2, completed=True)
 
-        self.console.print("Running deep analysis per cluster...", style="bold cyan")
-        for group in track(
-            groups,
-            description="Running deep analysis",
-            console=self.console,
-        ):
-            group.error_analysis = await self.analyzer.run(group)
+            task3 = progress.add_task("[cyan]Clustering failures...", total=None)
+            groups = await cluster_failures(failed_cases)
+            progress.update(task3, completed=True)
+
+            task4 = progress.add_task("[cyan]Running deep analysis...", total=len(groups))
+            for group in groups:
+                group.error_analysis = await self.analyzer.run(group)
+                progress.advance(task4)
+            progress.update(task4, completed=True)
 
         format_analysis_results(groups, str(self.report_path))
         self.console.print(f"Report saved to {self.report_path}", style="bold green")
