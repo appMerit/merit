@@ -53,7 +53,7 @@ class CLIApplication:
         )
 
     def run(self, argv: Sequence[str] | None = None) -> int:
-        load_dotenv()
+        load_dotenv(Path.cwd() / ".env")
         args = self.parser.parse_args(argv)
         AnalyzeCommand(self.console, args).run()
         return 0
