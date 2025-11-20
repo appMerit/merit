@@ -4,14 +4,13 @@ import json
 import re
 import uuid
 from pathlib import Path
-from typing import List, Any, Dict
+from typing import Any
 
-from ..types import ErrorAnalysis, TestCaseGroup, CodeComponent, ComponentType
+from ..types import TestCaseGroup
 
 
-def format_analysis_results_html(results: List[TestCaseGroup], path: str, source_csv: str | None = None) -> str:
-    """
-    Format analysis results into HTML using the embedded template.
+def format_analysis_results_html(results: list[TestCaseGroup], path: str, source_csv: str | None = None) -> str:
+    """Format analysis results into HTML using the embedded template.
 
     Args:
         results: List of analysis results from CodeAnalyzer
@@ -23,7 +22,7 @@ def format_analysis_results_html(results: List[TestCaseGroup], path: str, source
     """
     template_path = Path(__file__).parent / "templates" / "report-template.html"
 
-    with open(template_path, "r", encoding="utf-8") as f:
+    with open(template_path, encoding="utf-8") as f:
         template = f.read()
 
     report_data = _convert_to_json_format(results, source_csv)
@@ -48,10 +47,9 @@ def format_analysis_results_html(results: List[TestCaseGroup], path: str, source
     return path
 
 
-def _convert_to_json_format(results: List[TestCaseGroup], source_csv: str | None = None) -> Dict[str, Any]:
+def _convert_to_json_format(results: list[TestCaseGroup], source_csv: str | None = None) -> dict[str, Any]:
     """Convert TestCaseGroup list to the JSON format expected by the HTML template."""
-
-    report_data: Dict[str, Any] = {"reportId": str(uuid.uuid4()), "clusters": []}
+    report_data: dict[str, Any] = {"reportId": str(uuid.uuid4()), "clusters": []}
 
     if source_csv:
         report_data["generatedFrom"] = source_csv
@@ -97,7 +95,7 @@ def _convert_to_json_format(results: List[TestCaseGroup], source_csv: str | None
     return report_data
 
 
-def _convert_test_case_to_dict(case: Any) -> Dict[str, Any]:
+def _convert_test_case_to_dict(case: Any) -> dict[str, Any]:
     """Convert TestCase to dictionary format."""
     from dataclasses import asdict
 

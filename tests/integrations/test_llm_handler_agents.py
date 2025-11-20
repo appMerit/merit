@@ -1,11 +1,8 @@
-import json
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock
-from pydantic import BaseModel, Field
 
 import pytest
-from agents.tool_context import ToolContext
+from pydantic import BaseModel, Field
 
 from merit_analyzer.core.llm_driver.openai_handler import LLMOpenAI
 from merit_analyzer.core.llm_driver.policies import AGENT, FILE_ACCESS_POLICY, TOOL

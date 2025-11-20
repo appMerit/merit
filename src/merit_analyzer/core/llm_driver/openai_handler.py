@@ -1,14 +1,15 @@
-from typing import Any, Callable, Dict, List, Type, TypeVar, get_type_hints, cast
+from collections.abc import Callable
 from pathlib import Path
 
 from agents import Agent, Runner, function_tool
-from openai import OpenAI
 from dotenv import load_dotenv
+from openai import OpenAI
 
 from .abstract_provider_handler import LLMAbstractHandler, ModelT
-from .local_tools import read, write, edit, grep, glob, ls, todo
-from .policies import AGENT, TOOL, FILE_ACCESS_POLICY
 from .defaults import MAX_AGENT_TURNS
+from .local_tools import edit, glob, grep, ls, read, todo, write
+from .policies import AGENT, FILE_ACCESS_POLICY, TOOL
+
 
 load_dotenv()
 
@@ -40,13 +41,13 @@ class LLMOpenAI(LLMAbstractHandler):
 
     def __init__(self, open_ai_client: OpenAI):
         self.client = open_ai_client
-        self.compiled_agents: Dict[AGENT, Agent] = {}
+        self.compiled_agents: dict[AGENT, Agent] = {}
 
-    async def generate_embeddings(self, input_values: List[str], model: str | None = None) -> List[List[float]]:
+    async def generate_embeddings(self, input_values: list[str], model: str | None = None) -> list[list[float]]:
         response = self.client.embeddings.create(model=model or self.default_embedding_model, input=input_values)
         return [item.embedding for item in response.data]
 
-    async def create_object(self, prompt: str, schema: Type[ModelT], model: str | None = None) -> ModelT:
+    async def create_object(self, prompt: str, schema: type[ModelT], model: str | None = None) -> ModelT:
         model = model or self.default_big_model
         response = self.client.responses.parse(model=model, input=prompt, text_format=schema)
         parsed = response.output_parsed
@@ -60,8 +61,8 @@ class LLMOpenAI(LLMAbstractHandler):
         system_prompt: str | None,
         model: str | None = None,
         file_access: FILE_ACCESS_POLICY = FILE_ACCESS_POLICY.READ_ONLY,
-        standard_tools: List[TOOL] = [],
-        extra_tools: List[Callable] = [],
+        standard_tools: list[TOOL] = [],
+        extra_tools: list[Callable] = [],
         cwd: str | Path | None = None,
         output_type: type[ModelT] | type[str] = str,
     ):
@@ -92,7 +93,6 @@ class LLMOpenAI(LLMAbstractHandler):
             output_type=output_type,
         )
         self.compiled_agents[agent_name] = agent
-        return
 
     async def run_agent(
         self, agent: AGENT, task: str, output_type: type[ModelT] | type[str], max_turns: int | None = None

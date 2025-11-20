@@ -1,12 +1,10 @@
 import csv
-from typing import List
 
-from ..types import TestCase, TestCaseValues, AssertionsResult
+from ..types import AssertionsResult, TestCase, TestCaseValues
 
 
-def parse_test_cases_from_csv(path_to_csv: str) -> List[TestCase]:
+def parse_test_cases_from_csv(path_to_csv: str) -> list[TestCase]:
     """Parse CSV into test cases"""
-
     with open(path_to_csv, newline="", encoding="utf-8") as source:
         reader = csv.DictReader(source)
         required = {"case_input", "reference_value", "output_for_assertions", "passed", "error_message"}
@@ -14,7 +12,7 @@ def parse_test_cases_from_csv(path_to_csv: str) -> List[TestCase]:
         if missing:
             raise ValueError(f"CSV missing columns: {', '.join(sorted(missing))}")
 
-        test_cases: List[TestCase] = []
+        test_cases: list[TestCase] = []
 
         for row in reader:
             passed_flag = row["passed"].strip().lower()

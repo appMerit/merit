@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
-from dataclasses import dataclass, asdict
-from typing import Any, List, Literal, Tuple, TypedDict
+from dataclasses import dataclass
+from typing import Any
 
-from .assertion import AssertionsResult
-from .error import ErrorDescription, ErrorAnalysis
+from pydantic import BaseModel, Field
 
 from ..core import get_llm_client
+from .assertion import AssertionsResult
+from .error import ErrorAnalysis, ErrorDescription
+
 
 # Relevant prompts
 
@@ -90,7 +91,7 @@ class TestCase:
 @dataclass
 class TestCaseGroup:
     metadata: GroupMetadata
-    test_cases: List[TestCase]
+    test_cases: list[TestCase]
     error_analysis: ErrorAnalysis | None = None
 
 

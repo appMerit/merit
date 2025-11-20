@@ -1,21 +1,22 @@
 """Handle LLM clients"""
 
-import os
 import asyncio
+import os
 from typing import Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from .openai_handler import LLMOpenAI
-from .anthropic_handler import LLMClaude
 from .abstract_provider_handler import LLMAbstractHandler
-from .policies import AGENT, TOOL, FILE_ACCESS_POLICY
+from .anthropic_handler import LLMClaude
+from .openai_handler import LLMOpenAI
+from .policies import AGENT, FILE_ACCESS_POLICY, TOOL
+
 
 load_dotenv()
 
-cached_client: Optional[LLMAbstractHandler] = None
-cached_key: Optional[tuple[str, str]] = None
+cached_client: LLMAbstractHandler | None = None
+cached_key: tuple[str, str] | None = None
 client_lock = asyncio.Lock()
 validated_once = False
 
@@ -27,7 +28,6 @@ SUPPORTED = {
 
 async def build_llm_client(model_vendor: str, inference_vendor: str) -> LLMAbstractHandler:
     """Get the right LLM client based on model and vendor"""
-
     mv = model_vendor.lower().strip()
     ip = inference_vendor.lower().strip()
 
@@ -90,8 +90,7 @@ async def validate_client(client: LLMAbstractHandler) -> None:
 
 
 async def get_llm_client() -> LLMAbstractHandler:
-    """
-    Return a cached LLM client built from MODEL_VENDOR and INFERENCE_VENDOR.
+    """Return a cached LLM client built from MODEL_VENDOR and INFERENCE_VENDOR.
     Rebuilds if envs changed.
     """
     global cached_client, cached_key, validated_once
@@ -118,4 +117,4 @@ async def get_llm_client() -> LLMAbstractHandler:
         return cached_client
 
 
-__all__ = ["AGENT", "TOOL", "FILE_ACCESS_POLICY", "get_llm_client", "LLMAbstractHandler"]
+__all__ = ["AGENT", "FILE_ACCESS_POLICY", "TOOL", "LLMAbstractHandler", "get_llm_client"]

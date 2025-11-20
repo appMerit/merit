@@ -1,11 +1,9 @@
 import json
 from pathlib import Path
 
+from ...core import AGENT, FILE_ACCESS_POLICY, TOOL, dataclass_to_xml, get_llm_client
+from ...types import ErrorAnalysis, TestCaseGroup
 from .prompts import SYSTEM, TASK
-
-from ...types import TestCaseGroup, ErrorAnalysis
-
-from ...core import get_llm_client, AGENT, FILE_ACCESS_POLICY, TOOL, dataclass_to_xml
 
 
 class ErrorAnalyzer:
@@ -17,7 +15,6 @@ class ErrorAnalyzer:
 
     async def run(self, failed_group: TestCaseGroup) -> ErrorAnalysis:
         """Analyze failed test groups and provide solutions for each"""
-
         client = await get_llm_client()
 
         if self.name not in client.compiled_agents:

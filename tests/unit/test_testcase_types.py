@@ -1,7 +1,7 @@
 import asyncio
 import re
 
-from merit_analyzer.types.case import TestCase, TestCaseValues, ErrorDescription
+from merit_analyzer.types.case import TestCase, TestCaseValues
 
 
 def test_generate_error_data_integration():

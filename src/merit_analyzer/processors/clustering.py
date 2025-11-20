@@ -1,10 +1,10 @@
 from collections import defaultdict
 
 from hdbscan import HDBSCAN
-from typing import List
 
 from ..core import get_llm_client
-from ..types import TestCase, TestCaseGroup, GroupMetadata
+from ..types import GroupMetadata, TestCase, TestCaseGroup
+
 
 CLUSTERING_PROMPT = """
 <task>
@@ -72,9 +72,8 @@ CLUSTERING_PROMPT = """
 """
 
 
-async def cluster_failures(failed_test_cases: List[TestCase]) -> List[TestCaseGroup]:
+async def cluster_failures(failed_test_cases: list[TestCase]) -> list[TestCaseGroup]:
     """Cluster failed test cases for further error analysis"""
-
     llm_client = await get_llm_client()
 
     embeddings = await llm_client.generate_embeddings(

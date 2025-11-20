@@ -5,11 +5,8 @@
 # with files.
 
 import re
-
-from typing import List, Any, Dict
 from pathlib import Path
-
-from .policies import AGENT, TOOL, FILE_ACCESS_POLICY
+from typing import Any
 
 
 def read(file_path: str, offset: int | None = None, limit: int | None = None) -> dict[str, Any]:
@@ -44,7 +41,7 @@ def edit(file_path: str, old_string: str, new_string: str, replace_all: bool | N
 
 def glob(pattern: str, path: str | None = None) -> dict[str, Any]:
     """Return paths that match a glob pattern."""
-    base = Path(path) if path else Path(".")
+    base = Path(path) if path else Path()
     matches = sorted(str(match) for match in base.glob(pattern))
     return {"matches": matches, "count": len(matches), "search_path": str(base)}
 
@@ -58,15 +55,15 @@ def grep(
     head_limit: int | None = None,
 ) -> dict[str, Any]:
     """Search files for lines matching a pattern."""
-    base = Path(path) if path else Path(".")
+    base = Path(path) if path else Path()
     flags = re.MULTILINE | (re.IGNORECASE if ignore_case else 0)
     matcher = re.compile(pattern, flags)
     candidates = [base] if base.is_file() else [p for p in base.rglob(glob or "*") if p.is_file()]
-    results: List[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     for candidate in candidates:
         for index, line in enumerate(candidate.read_text().splitlines(), start=1):
             if matcher.search(line):
-                record: Dict[str, Any] = {"file": str(candidate), "line": line}
+                record: dict[str, Any] = {"file": str(candidate), "line": line}
                 if show_line_numbers:
                     record["line_number"] = index
                 results.append(record)
@@ -77,12 +74,12 @@ def grep(
 
 def ls(path: str | None = None) -> dict[str, Any]:
     """List directory entries."""
-    target = Path(path) if path else Path(".")
+    target = Path(path) if path else Path()
     entries = sorted(str(entry) for entry in target.iterdir())
     return {"path": str(target), "entries": entries, "count": len(entries)}
 
 
-def todo(todos: List[Dict[str, Any]]) -> dict[str, Any]:
+def todo(todos: list[dict[str, Any]]) -> dict[str, Any]:
     """Summarize todo items by status."""
     totals = {"pending": 0, "in_progress": 0, "completed": 0}
     for todo in todos:

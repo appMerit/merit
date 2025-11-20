@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import List, Literal
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from .code import CodeComponent
@@ -9,7 +10,7 @@ from .code import CodeComponent
 class ErrorDescription(BaseModel):
     """Error messages enreached with context"""
 
-    errors: List[str] = Field(description="List all problems with this AI system output that led to failed assertions")
+    errors: list[str] = Field(description="List all problems with this AI system output that led to failed assertions")
 
 
 class FrameInfo(BaseModel):
@@ -47,15 +48,15 @@ class ErrorSolution(BaseModel):
 class ErrorAnalysis(BaseModel):
     """Analysis for a group of errors"""
 
-    involved_code_components: List[CodeComponent] = Field(
+    involved_code_components: list[CodeComponent] = Field(
         ...,
         description="The root cause with file:line reference (e.g., 'calculator.py:35 - Missing zero check causes ZeroDivisionError')",
     )
-    traceback: List[FrameInfo] = Field(
+    traceback: list[FrameInfo] = Field(
         ...,
         description="The exact code snippet that is causing the problem",
     )
-    recommendations: List[ErrorSolution] = Field(
+    recommendations: list[ErrorSolution] = Field(
         min_length=1,
         max_length=3,
         description="List of 1-3 actionable recommendations with actual code fixes",

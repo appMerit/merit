@@ -3,18 +3,17 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from ..engines.error_analyzer.driver import ErrorAnalyzer
 from ..processors.clustering import cluster_failures
-from ..processors.parse_test_cases import parse_test_cases_from_csv
 from ..processors.html_formatter import format_analysis_results_html
-from ..types import TestCase
+from ..processors.parse_test_cases import parse_test_cases_from_csv
 
 
 class CLIApplication:

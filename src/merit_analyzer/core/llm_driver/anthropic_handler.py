@@ -1,10 +1,9 @@
-from typing import Any, Callable, Dict, List, Type, TypeVar, get_type_hints, cast
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast, get_type_hints
 
-from dotenv import load_dotenv
-from pydantic import BaseModel, create_model, ValidationError
 from anthropic import Anthropic, AnthropicBedrock, AnthropicVertex
-from anthropic.types import ToolParam, MessageParam, ToolUseBlock
+from anthropic.types import ToolParam, ToolUseBlock
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -13,12 +12,13 @@ from claude_agent_sdk import (
     create_sdk_mcp_server,
     tool,
 )
+from dotenv import load_dotenv
+from pydantic import BaseModel, ValidationError, create_model
 
+from ..local_models import MODEL_ID, local_embeddings_engine
 from .abstract_provider_handler import LLMAbstractHandler, ModelT
-from .local_tools import read, write, edit, grep, glob, ls, todo
-from .policies import AGENT, TOOL, FILE_ACCESS_POLICY
+from .policies import AGENT, FILE_ACCESS_POLICY, TOOL
 
-from ..local_models import local_embeddings_engine, MODEL_ID
 
 load_dotenv()
 
@@ -54,14 +54,14 @@ class LLMClaude(LLMAbstractHandler):
 
     def __init__(self, client: Anthropic | AnthropicBedrock | AnthropicVertex):
         self.client = client
-        self.compiled_agents: Dict[AGENT, ClaudeAgentOptions] = {}
+        self.compiled_agents: dict[AGENT, ClaudeAgentOptions] = {}
 
-    async def generate_embeddings(self, input_values: List[str], model: str | None = None) -> List[List[float]]:
+    async def generate_embeddings(self, input_values: list[str], model: str | None = None) -> list[list[float]]:
         return await local_embeddings_engine.generate_embeddings(input_values=input_values)
 
-    async def create_object(self, prompt: str, schema: Type[ModelT], model: str | None = None) -> ModelT:
+    async def create_object(self, prompt: str, schema: type[ModelT], model: str | None = None) -> ModelT:
         client = self.client
-        tools: List[ToolParam] = [
+        tools: list[ToolParam] = [
             {
                 "name": "emit_structured_result",
                 "description": "Return the result strictly as JSON matching input_schema. No external effects.",
@@ -80,7 +80,7 @@ class LLMClaude(LLMAbstractHandler):
         try:
             # TODO: retry with same args if err (max 2 times)
             return schema.model_validate(tool_call.input)
-        except ValidationError as e:
+        except ValidationError:
             raise
 
     def compile_agent(
@@ -89,8 +89,8 @@ class LLMClaude(LLMAbstractHandler):
         system_prompt: str | None,
         model: str | None = None,
         file_access: FILE_ACCESS_POLICY = FILE_ACCESS_POLICY.READ_ONLY,
-        standard_tools: List[TOOL] = [],
-        extra_tools: List[Callable] = [],
+        standard_tools: list[TOOL] = [],
+        extra_tools: list[Callable] = [],
         output_type: type[ModelT] | type[str] = str,
         cwd: str | Path | None = None,
     ):
@@ -116,7 +116,6 @@ class LLMClaude(LLMAbstractHandler):
             agent_config.mcp_servers = {"extra_tools": create_sdk_mcp_server(name="extra_tools", tools=parsed_tools)}
 
         self.compiled_agents[agent_name] = agent_config
-        return
 
     async def run_agent(
         self, agent: AGENT, task: str, output_type: type[ModelT] | type[str] = str, max_turns: int | None = None
@@ -140,9 +139,9 @@ class LLMClaude(LLMAbstractHandler):
             raise ValueError
 
         if isinstance(client_response, output_type):
-            return cast(ModelT, client_response)
+            return cast("ModelT", client_response)
 
-        elif issubclass(output_type, BaseModel) and isinstance(client_response, str):
+        if issubclass(output_type, BaseModel) and isinstance(client_response, str):
             prompt_template = f"""
                 Your job is to transform the following text into a JSON and submit result
                 using the 'emit_structured_result' tool. Be very careful with the JSON
@@ -165,5 +164,4 @@ class LLMClaude(LLMAbstractHandler):
             )
             return parsed
 
-        else:
-            raise TypeError(f"Client output can't be parsed as {output_type}")
+        raise TypeError(f"Client output can't be parsed as {output_type}")

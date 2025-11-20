@@ -13,12 +13,13 @@ Each test validates:
 """
 
 import os
-import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+import pytest
 from pydantic import BaseModel
 
-from merit_analyzer.core.llm_driver import get_llm_client, AGENT, TOOL, FILE_ACCESS_POLICY
+from merit_analyzer.core.llm_driver import AGENT, FILE_ACCESS_POLICY, TOOL, get_llm_client
 
 
 # ============================================================================
@@ -155,7 +156,6 @@ class TestAnthropicBedrock:
         os.environ["INFERENCE_VENDOR"] = "aws"
         os.environ["AWS_REGION"] = os.getenv("AWS_REGION", "us-east-1")
         # Clear cache to force new client
-        from merit_analyzer.core.llm_driver import cached_client, cached_key
 
         globals()["cached_client"] = None
         globals()["cached_key"] = None
@@ -170,7 +170,7 @@ class TestAnthropicBedrock:
 
         assert len(embeddings) == 2
         assert len(embeddings[0]) == 384
-        print(f"✅ Bedrock: Embeddings generated via local model")
+        print("✅ Bedrock: Embeddings generated via local model")
 
     async def test_create_object(self, sample_schema):
         """Test structured object creation via Bedrock."""
@@ -200,7 +200,7 @@ class TestAnthropicBedrock:
             result = await self.client.run_agent(agent=AGENT.SUITE_SCHEMA_BUILDER, task=task, output_type=str)
 
             assert isinstance(result, str)
-            print(f"✅ Bedrock: Agent executed via Bedrock")
+            print("✅ Bedrock: Agent executed via Bedrock")
 
         finally:
             os.chdir(original_cwd)
@@ -223,7 +223,6 @@ class TestAnthropicVertex:
         os.environ["INFERENCE_VENDOR"] = "gcp"
         os.environ["GOOGLE_CLOUD_PROJECT"] = os.getenv("GOOGLE_CLOUD_PROJECT", "")
         # Clear cache
-        from merit_analyzer.core.llm_driver import cached_client, cached_key
 
         globals()["cached_client"] = None
         globals()["cached_key"] = None
@@ -238,7 +237,7 @@ class TestAnthropicVertex:
 
         assert len(embeddings) == 2
         assert len(embeddings[0]) == 384
-        print(f"✅ Vertex: Embeddings generated via local model")
+        print("✅ Vertex: Embeddings generated via local model")
 
     async def test_create_object(self, sample_schema):
         """Test structured object creation via Vertex."""
@@ -262,8 +261,9 @@ class TestAgentFileOperations:
 
     async def _get_fresh_client(self):
         """Get a fresh client for each test to avoid state pollution."""
-        import merit_analyzer.core.llm_driver as llm_driver
         import asyncio
+
+        from merit_analyzer.core import llm_driver
 
         # Clear ALL cached state
         llm_driver.cached_client = None
@@ -352,7 +352,7 @@ class TestAgentFileOperations:
             content = (temp_workspace / "input.txt").read_text()
             assert "Universe" in content
             assert "World" not in content
-            print(f"✅ Agent edited file successfully")
+            print("✅ Agent edited file successfully")
 
         finally:
             os.chdir(original_cwd)
@@ -376,7 +376,7 @@ class TestAgentFileOperations:
             result = await client.run_agent(agent=AGENT.ERROR_ANALYZER, task=task, output_type=str)
 
             assert isinstance(result, str)
-            print(f"✅ Agent grep search completed")
+            print("✅ Agent grep search completed")
 
         finally:
             os.chdir(original_cwd)

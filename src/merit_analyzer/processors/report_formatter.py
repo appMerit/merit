@@ -1,14 +1,12 @@
 """Markdown formatter for analysis results."""
 
-from typing import List
 from dataclasses import asdict
 
-from ..types import ErrorAnalysis, TestCaseGroup
+from ..types import TestCaseGroup
 
 
-def format_analysis_results(results: List[TestCaseGroup], path: str) -> str:
-    """
-    Format analysis results into markdown.
+def format_analysis_results(results: list[TestCaseGroup], path: str) -> str:
+    """Format analysis results into markdown.
 
     Structure: error group name > problematic behavior > problematic code > relevant test results
 
@@ -76,7 +74,7 @@ def _format_error_group(idx: int, result: TestCaseGroup) -> str:
     # Relevant Test Results
     lines.append("### Related Failed Tests\n")
     for case in result.test_cases:
-        lines.append(f"- {str(asdict(case))}\n")
+        lines.append(f"- {asdict(case)!s}\n")
 
     lines.append("---\n")
 
