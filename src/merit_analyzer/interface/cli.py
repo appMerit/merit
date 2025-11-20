@@ -13,7 +13,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from ..engines.error_analyzer.driver import ErrorAnalyzer
 from ..processors.clustering import cluster_failures
 from ..processors.parse_test_cases import parse_test_cases_from_csv
-from ..processors.report_formatter import format_analysis_results
+from ..processors.html_formatter import format_analysis_results_html
 from ..types import TestCase
 
 
@@ -29,7 +29,7 @@ class CLIApplication:
         subparsers = self.parser.add_subparsers(dest="command", required=True)
         analyze = subparsers.add_parser(
             "analyze",
-            help="Cluster failures and generate a Markdown report.",
+            help="Cluster failures and generate an HTML report.",
         )
         analyze.add_argument(
             "csv_path",
@@ -38,8 +38,8 @@ class CLIApplication:
         analyze.add_argument(
             "--report",
             dest="report_path",
-            default="merit_report.md",
-            help="Where to write the Markdown report (default: merit_report.md)",
+            default="merit_report.html",
+            help="Where to write the HTML report (default: merit_report.html)",
         )
         analyze.add_argument(
             "--model-vendor",
@@ -86,8 +86,9 @@ class AnalyzeCommand:
             case for case in test_cases if not case.assertions_result or not case.assertions_result.passed
         ]
         if not failed_cases:
-            format_analysis_results([], str(self.report_path))
-            self.console.print("No failing tests found. Blank report generated.", style="bold green")
+            format_analysis_results_html([], str(self.report_path), str(self.csv_path))
+            report_url = self.report_path.resolve().as_uri()
+            self.console.print(f"No failing tests found. Blank report generated at [link={report_url}]{report_url}[/link]", style="bold green")
             return
 
         self.console.print("[cyan]Generating error descriptions...", end="")
@@ -114,5 +115,6 @@ class AnalyzeCommand:
                 group.error_analysis = await self.analyzer.run(group)
                 progress.advance(task)
 
-        format_analysis_results(groups, str(self.report_path))
-        self.console.print(f"Report saved to {self.report_path}", style="bold green")
+        format_analysis_results_html(groups, str(self.report_path), str(self.csv_path))
+        report_url = self.report_path.resolve().as_uri()
+        self.console.print(f"Report saved to [link={report_url}]{report_url}[/link]", style="bold green")
