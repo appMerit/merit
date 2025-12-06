@@ -1,14 +1,24 @@
 """Tests for merit.testing.runner module."""
 
 import asyncio
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from rich.console import Console
 
 from merit.testing.discovery import TestItem
-from merit.testing.resources import ResourceResolver, Scope, clear_registry, get_registry, resource
-from merit.testing.runner import Runner, RunResult, TestResult, TestStatus
+from merit.testing.resources import clear_registry, resource
+from merit.testing.runner import (
+    RunEnvironment,
+    Runner,
+    RunResult,
+    TestResult,
+    TestStatus,
+    _filter_env_vars,
+    capture_environment,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -75,6 +85,55 @@ class TestRunResult:
         assert result.skipped == 1
         assert result.xfailed == 1
         assert result.xpassed == 1
+
+
+class TestEnvironmentCapture:
+    """Tests for environment capture functionality."""
+
+    def test_filter_env_vars_masks_keys(self):
+        """Test that sensitive keys are masked."""
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "sk-1234567890abcdef",
+                "ANTHROPIC_API_KEY": "sk-ant-1234567890abcdef",
+                "MODEL_VENDOR": "openai",
+                "RANDOM_VAR": "should_not_be_captured",
+            },
+            clear=True,
+        ):
+            captured = _filter_env_vars()
+
+            assert captured["MODEL_VENDOR"] == "openai"
+            assert "RANDOM_VAR" not in captured
+            assert captured["OPENAI_API_KEY"] == "***cdef"
+            assert captured["ANTHROPIC_API_KEY"] == "***cdef"
+
+    def test_filter_env_vars_short_keys(self):
+        """Test masking of short keys."""
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "123"}, clear=True):
+            captured = _filter_env_vars()
+            assert captured["OPENAI_API_KEY"] == "***"
+
+    def test_capture_environment_structure(self):
+        """Test that capture_environment returns a valid RunEnvironment."""
+        env = capture_environment()
+        assert isinstance(env, RunEnvironment)
+        assert env.run_id is not None
+        assert env.start_time is not None
+        assert env.python_version is not None
+        assert env.platform is not None
+        assert env.merit_version is not None
+
+    def test_run_environment_serialization(self):
+        """Test to_dict serialization."""
+        env = RunEnvironment()
+        data = env.to_dict()
+
+        assert isinstance(data["run_id"], str)
+        assert isinstance(data["start_time"], str)
+        assert data["end_time"] is None
+        assert isinstance(data["env_vars"], dict)
 
 
 class TestRunner:
@@ -229,7 +288,7 @@ class TestMaxfail:
     @pytest.mark.asyncio
     async def test_maxfail_counts_errors_too(self):
         def error_test():
-            raise RuntimeError()
+            raise RuntimeError
 
         items = [make_item(error_test, name=f"err_{i}") for i in range(5)]
         runner = Runner(console=Console(quiet=True), maxfail=1)

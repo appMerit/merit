@@ -3,7 +3,6 @@
 import pytest
 
 from merit.testing.resources import (
-    ResourceDef,
     ResourceResolver,
     Scope,
     clear_registry,
@@ -336,11 +335,11 @@ class TestForkForCase:
             return call_count
 
         parent = ResourceResolver(get_registry())
-        
+
         # First resolve in parent to populate cache
         parent_val = await parent.resolve("shared_suite")
         assert parent_val == 1
-        
+
         # Children should inherit from parent cache
         child1 = parent.fork_for_case()
         child2 = parent.fork_for_case()

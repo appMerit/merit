@@ -1,16 +1,160 @@
 """Test runner for executing discovered tests."""
 
 import asyncio
+import os
+import platform
+import socket
+import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
+from uuid import UUID, uuid4
 
 from rich.console import Console
 
 from merit.assertions import AssertionResult
 from merit.testing.discovery import TestItem, collect
 from merit.testing.resources import ResourceResolver, Scope, get_registry
+from merit.version import __version__
+
+
+@dataclass
+class RunEnvironment:
+    """Metadata about the environment where tests were executed."""
+
+    run_id: UUID = field(default_factory=uuid4)
+    start_time: datetime = field(default_factory=lambda: datetime.now(UTC))
+    end_time: datetime | None = None
+
+    # Git info
+    commit_hash: str | None = None
+    branch: str | None = None
+    dirty: bool | None = None
+
+    # System info
+    python_version: str = field(default_factory=lambda: sys.version.split()[0])
+    platform: str = field(default_factory=platform.platform)
+    hostname: str = field(default_factory=socket.gethostname)
+    working_directory: str = field(default_factory=os.getcwd)
+    merit_version: str = __version__
+
+    # Environment variables (filtered)
+    env_vars: dict[str, str] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dictionary."""
+        return {
+            "run_id": str(self.run_id),
+            "start_time": self.start_time.isoformat(),
+            "end_time": self.end_time.isoformat() if self.end_time else None,
+            "commit_hash": self.commit_hash,
+            "branch": self.branch,
+            "dirty": self.dirty,
+            "python_version": self.python_version,
+            "platform": self.platform,
+            "hostname": self.hostname,
+            "working_directory": self.working_directory,
+            "merit_version": self.merit_version,
+            "env_vars": self.env_vars,
+        }
+
+
+def _get_git_info() -> tuple[str | None, str | None, bool | None]:
+    """Capture git metadata if available."""
+    try:
+        # Check if inside git repo
+        subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            check=True,
+            capture_output=True,
+            timeout=1,
+        )
+
+        # Get hash
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=1,
+        ).stdout.strip()
+
+        # Get branch
+        branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=1,
+        ).stdout.strip()
+
+        # Check dirty status
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=1,
+        ).stdout.strip()
+        dirty = bool(status)
+
+        return commit, branch, dirty
+
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return None, None, None
+
+
+def _filter_env_vars() -> dict[str, str]:
+    """Capture and mask relevant environment variables."""
+    # TODO: detect ci_provider from env vars
+
+    allowlist = {
+        "MODEL_VENDOR",
+        "INFERENCE_VENDOR",
+        "CLOUD_ML_REGION",
+        "GOOGLE_CLOUD_PROJECT",
+        "AWS_REGION",
+    }
+
+    captured = {}
+    for key, value in os.environ.items():
+        if key in allowlist:
+            captured[key] = value
+
+    # Explicitly check for known keys to capture masked versions
+    sensitive_keys = [
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+    ]
+
+    for key in sensitive_keys:
+        if key in os.environ:
+            val = os.environ[key]
+            if len(val) > 4:
+                captured[key] = f"***{val[-4:]}"
+            else:
+                captured[key] = "***"
+
+    return captured
+
+
+def capture_environment() -> RunEnvironment:
+    """Capture current environment metadata."""
+    # TODO: capture frozen package versions for full reproducibility
+
+    commit, branch, dirty = _get_git_info()
+
+    return RunEnvironment(
+        commit_hash=commit,
+        branch=branch,
+        dirty=dirty,
+        env_vars=_filter_env_vars(),
+    )
 
 
 class TestStatus(Enum):
@@ -43,6 +187,7 @@ class RunResult:
     results: list[TestResult] = field(default_factory=list)
     total_duration_ms: float = 0
     stopped_early: bool = False
+    environment: RunEnvironment | None = None
 
     @property
     def passed(self) -> int:
@@ -122,16 +267,20 @@ class Runner:
             items: Pre-collected test items, or None to discover.
             path: Path to discover tests from if items not provided.
         """
+        run_result = RunResult()
+        run_result.environment = capture_environment()
+
         if items is None:
             items = collect(path)
 
         if not items:
             self.console.print("[yellow]No tests found.[/yellow]")
-            return RunResult()
+            if run_result.environment:
+                run_result.environment.end_time = datetime.now(UTC)
+            return run_result
 
         self.console.print(f"[bold]Collected {len(items)} tests[/bold]\n")
 
-        run_result = RunResult()
         start = time.perf_counter()
 
         resolver = ResourceResolver(get_registry())
@@ -145,13 +294,13 @@ class Runner:
         await resolver.teardown()
 
         run_result.total_duration_ms = (time.perf_counter() - start) * 1000
+        if run_result.environment:
+            run_result.environment.end_time = datetime.now(UTC)
         self._print_summary(run_result)
 
         return run_result
 
-    async def _run_sequential(
-        self, items: list[TestItem], resolver: ResourceResolver, run_result: RunResult
-    ) -> None:
+    async def _run_sequential(self, items: list[TestItem], resolver: ResourceResolver, run_result: RunResult) -> None:
         """Run tests sequentially."""
         failures = 0
         for item in items:
@@ -167,9 +316,7 @@ class Runner:
                     self.console.print(f"[red]Stopping early after {self.maxfail} failure(s).[/red]")
                     break
 
-    async def _run_concurrent(
-        self, items: list[TestItem], resolver: ResourceResolver, run_result: RunResult
-    ) -> None:
+    async def _run_concurrent(self, items: list[TestItem], resolver: ResourceResolver, run_result: RunResult) -> None:
         """Run tests concurrently with semaphore control."""
         semaphore = asyncio.Semaphore(self.concurrency)
         lock = asyncio.Lock()
@@ -194,7 +341,7 @@ class Runner:
                         )
                     else:
                         result = await self._run_test(item, child_resolver)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     duration = (time.perf_counter() - start) * 1000
                     result = TestResult(
                         item=item,
