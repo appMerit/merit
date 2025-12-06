@@ -58,6 +58,7 @@ async def merit_slow_api_call_5(shared_client):
     shared_client["requests"] += 1
     assert shared_client["id"] == "shared-client"
 
+
 async def merit_slow_api_call_6(shared_client):
     """Simulates a sixth slow API call."""
     await asyncio.sleep(0.5)

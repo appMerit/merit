@@ -117,7 +117,7 @@ class ResourceResolver:
 
     def fork_for_case(self) -> "ResourceResolver":
         """Create a child resolver for isolated CASE-scope execution.
-        
+
         Shares SUITE/SESSION cache with parent. SUITE/SESSION teardowns
         are registered with the parent to ensure proper cleanup.
         """

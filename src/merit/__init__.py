@@ -10,9 +10,8 @@ from .assertions import (
 )
 from .metrics import AverageScore, Metric, PassRate
 from .testing import Case, Suite, parametrize, resource, tag
+from .version import __version__
 
-
-__version__ = "0.1.0"
 
 __all__ = [
     # Core testing
