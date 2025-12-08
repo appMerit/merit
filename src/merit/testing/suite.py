@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from merit.assertions._base import Assertion, AssertionResult
+from merit.assertions._base import AssertionInference, AssertionResult
 from merit.testing.case import Case
 
 
@@ -16,28 +16,30 @@ class Suite:
         Name of the test suite
     cases : list[Case]
         Collection of test cases
-    assertions : list[Assertion]
+    assertions : list[AssertionInference]
         Suite-level assertions to run on each case
     """
 
-    def __init__(self, name: str, cases: list[Case], assertions: list[Assertion] | Assertion | None = None):
+    def __init__(self, name: str, cases: list[Case], assertions: list[AssertionInference] | AssertionInference | None = None):
         """Args:
         name : str
             Name for this suite
         cases : list[Case]
             Collection of test cases to run
-        assertions : list[Assertion] | Assertion | None
+        assertions : list[AssertionInference] | AssertionInference | None
             Suite-level assertion(s) to evaluate on each case
         """
         self.name = name
         self.cases = cases
         self.assertions = self._normalize_assertions(assertions)
 
-    def _normalize_assertions(self, assertions: list | Assertion | None) -> list[Assertion]:
+    def _normalize_assertions(self, assertions: list | AssertionInference | None) -> list:
         """Normalize assertions to list."""
         if assertions is None:
             return []
-        if isinstance(assertions, Assertion):
+        if isinstance(assertions, AssertionInference):
+            return [assertions]
+        if callable(assertions):
             return [assertions]
         return list(assertions)
 
@@ -64,7 +66,7 @@ class Suite:
             all_assertions = self.assertions + case_assertions
 
             for assertion in all_assertions:
-                result = assertion(actual, case)
+                result = assertion(actual)
                 results.append(result)
 
         return results

@@ -1,14 +1,30 @@
 """Assertion library for test validation."""
 
-from ._base import Assertion, AssertionFailedError, AssertionResult
-from .basic import Contains, ExactMatch, StartsWith
-
+from merit.assertions._base import (
+    AssertionFailedError,
+    AssertionInference,
+    AssertionMetadata,
+    AssertionResult,
+)
+from merit.assertions.deterministic import (
+    PythonArray,
+    PythonNumber,
+    PythonObject,
+    PythonString,
+)
+from merit.assertions.probabilistic import Facts, Instruction, Style, Behavior
 
 __all__ = [
-    "Assertion",
+    "AssertionInference",
     "AssertionFailedError",
+    "AssertionMetadata",
     "AssertionResult",
-    "Contains",
-    "ExactMatch",
-    "StartsWith",
+    "PythonString",
+    "PythonNumber",
+    "PythonArray",
+    "PythonObject",
+    "Facts",
+    "Instruction",
+    "Style",
+    "Behavior",
 ]

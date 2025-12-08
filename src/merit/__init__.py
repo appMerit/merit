@@ -1,12 +1,13 @@
 """Merit - Testing framework for AI agents."""
 
 from .assertions import (
-    Assertion,
     AssertionFailedError,
+    AssertionInference,
     AssertionResult,
-    Contains,
-    ExactMatch,
-    StartsWith,
+    PythonArray,
+    PythonNumber,
+    PythonObject,
+    PythonString,
 )
 from .metrics import AverageScore, Metric, PassRate
 from .testing import Case, Suite, parametrize, resource, tag
@@ -21,12 +22,13 @@ __all__ = [
     "tag",
     "resource",
     # Assertions
-    "Assertion",
+    "AssertionInference",
     "AssertionFailedError",
     "AssertionResult",
-    "Contains",
-    "ExactMatch",
-    "StartsWith",
+    "PythonString",
+    "PythonNumber",
+    "PythonArray",
+    "PythonObject",
     # Metrics
     "Metric",
     "PassRate",

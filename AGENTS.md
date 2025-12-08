@@ -4,6 +4,9 @@
 - Follow OOP and DRY.
 - Keep code short. Smaller is better.
 
+# Code Formatting
+- numpydoc for docstrings
+
 # Tools
 - use 'uv' instead of 'pip' for package management
     - 'uv add toolname' instead of 'pip install toolname'
