@@ -88,26 +88,26 @@ class PythonArray(AssertionInference):
 
     def contains(self, actual_value: list[Any]) -> AssertionResult:
         """
-        Check that actual list is a subset of the reference list.
+        Check that the actual list is contained within the reference list.
 
         Parameters
         ----------
-        actual_value : Any
-            Element that should be contained in the reference list.
+        actual_value : list[Any]
+            Candidate list expected to be fully contained in the reference list.
 
         Returns
         -------
         AssertionResult
-            Result with ``passed=True`` if actual is in reference.
-
-        Raises
-        ------
-        AssertionFailedError
-            If actual is not found in the reference list.
+            Result with ``passed=True`` if all elements of ``actual_value`` are
+            present in the reference list with at least the same multiplicity.
         """
-        passed = actual_value in self.reference_value
+        ref_counts = Counter(self.reference_value)
+        act_counts = Counter(actual_value)
+        passed = all(ref_counts.get(item, 0) >= count for item, count in act_counts.items())
         message = (
-            None if passed else f"Expected {self.reference_value!r} to be in {actual_value!r}"
+            None
+            if passed
+            else f"Expected {actual_value!r} to be contained within {self.reference_value!r}"
         )
         return self._build_result(
             actual=actual_value,
