@@ -16,6 +16,7 @@
 """
 
 from merit.assertions import (
+    facts_contain_reference,
     facts_not_contradict_reference,
     facts_in_reference,
     facts_match_reference,
@@ -65,7 +66,7 @@ async def merit_multi_assertion_test() -> None:
 
     # Merit assertions to check for hallucinations, relevancy, instruction following, and style
     assert await facts_not_contradict_reference(actual=ai_response, reference=refund_policy, context=context)
-    assert await reference_in_facts(actual=ai_response, reference=agent_facts, context=context)
+    assert await facts_contain_reference(actual=ai_response, reference=agent_facts, context=context)
     assert await conditions_met(actual=ai_response, reference=conditions, context=context)
     assert await style_match(actual=ai_response, reference=style_reference, context=context)
 

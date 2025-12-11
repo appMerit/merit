@@ -117,7 +117,7 @@ async def facts_in_reference(actual: str, reference: str, context: str | None = 
         )
 
 
-async def facts_match_reference(actual: str, reference: str, strict: bool = True, metrics: list | None = None) -> AssertionResult:
+async def facts_match_reference(actual: str, reference: str, context: str | None = None, strict: bool = True, metrics: list | None = None) -> AssertionResult:
     """
     Verify facts in the actual text fully match any facts in the reference text using the Merit facts endpoint.
 
