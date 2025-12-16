@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from merit.checks.base import CheckerResult
+from merit.checkers.base import CheckerResult
 
 
 class Metric(ABC):

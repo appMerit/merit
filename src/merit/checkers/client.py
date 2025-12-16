@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class RemoteCheckerRequest(BaseModel):
+class CheckerAPIRequest(BaseModel):
     """Request payload sent to the remote checker service.
 
     Parameters
@@ -34,7 +34,7 @@ class RemoteCheckerRequest(BaseModel):
     context: str | None = None
 
 
-class RemoteCheckerResponse(BaseModel):
+class CheckerAPIResponse(BaseModel):
     """Response payload returned by the remote checker service.
 
     Attributes
@@ -52,7 +52,7 @@ class RemoteCheckerResponse(BaseModel):
     message: str | None = None
 
 
-class RemoteCheckerSettings(BaseSettings):
+class CheckerAPISettings(BaseSettings):
     """Configuration for `RemoteCheckerClient`.
 
     Environment variables are read without a prefix.
@@ -102,10 +102,10 @@ class RemoteCheckerSettings(BaseSettings):
     )
 
 
-class RemoteCheckerClient:
+class CheckerAPIClient:
     """Thin wrapper around an httpx.AsyncClient."""
 
-    def __init__(self, http: httpx.AsyncClient, settings: RemoteCheckerSettings) -> None:
+    def __init__(self, http: httpx.AsyncClient, settings: CheckerAPISettings) -> None:
         """Initialize the client.
 
         Parameters
@@ -126,7 +126,7 @@ class RemoteCheckerClient:
         check: str,
         strict: bool = True,
         context: str | None = None,
-    ) -> RemoteCheckerResponse:
+    ) -> CheckerAPIResponse:
         """Run a remote check against the configured service.
 
         Parameters
@@ -144,7 +144,7 @@ class RemoteCheckerClient:
 
         Returns
         -------
-        RemoteCheckerResponse
+        CheckerAPIResponse
             Parsed response returned by the service.
 
         Raises
@@ -153,7 +153,7 @@ class RemoteCheckerClient:
             If the request ultimately fails or returns a non-success status.
         """
 
-        payload = RemoteCheckerRequest(
+        payload = CheckerAPIRequest(
             actual=actual,
             reference=reference,
             check=check,
@@ -190,32 +190,32 @@ class RemoteCheckerClient:
                 continue
 
             resp.raise_for_status()
-            return RemoteCheckerResponse.model_validate(resp.json())
+            return CheckerAPIResponse.model_validate(resp.json())
 
-        raise RuntimeError("RemoteCheckerClient.check exhausted retries")
+        raise RuntimeError("CheckerAPIClient.check exhausted retries")
 
 
-class RemoteCheckerClientFactory:
-    """Lazy, reusable factory for `RemoteCheckerClient`.
+class CheckerAPIFactory:
+    """Lazy, reusable factory for `CheckerAPIClient`.
 
     The factory owns a single underlying `httpx.AsyncClient` and returns a
-    shared `RemoteCheckerClient` instance while the HTTP client remains open.
+    shared `CheckerAPIClient` instance while the HTTP client remains open.
     """
 
-    def __init__(self, settings: RemoteCheckerSettings | None = None) -> None:
+    def __init__(self, settings: CheckerAPISettings | None = None) -> None:
         """Create a factory.
 
         Parameters
         ----------
         settings
             Optional settings override. If omitted, settings are loaded from the
-            environment via `RemoteCheckerSettings`.
+            environment via `CheckerAPISettings`.
         """
 
-        self._settings = settings or RemoteCheckerSettings()  # type: ignore[call-arg]
+        self._settings = settings or CheckerAPISettings()  # type: ignore[call-arg]
         self._lock = asyncio.Lock()
         self._http: httpx.AsyncClient | None = None
-        self._client: RemoteCheckerClient | None = None
+        self._client: CheckerAPIClient | None = None
 
     async def aclose(self) -> None:
         """Close the underlying `httpx.AsyncClient` (if any) and reset state."""
@@ -226,12 +226,12 @@ class RemoteCheckerClientFactory:
             self._http = None
             self._client = None
 
-    async def get(self) -> RemoteCheckerClient:
-        """Return a shared `RemoteCheckerClient`, creating it if needed.
+    async def get(self) -> CheckerAPIClient:
+        """Return a shared `CheckerAPIClient`, creating it if needed.
 
         Returns
         -------
-        RemoteCheckerClient
+        CheckerAPIClient
             A client backed by a shared `httpx.AsyncClient` connection pool.
         """
 
@@ -264,29 +264,29 @@ class RemoteCheckerClientFactory:
                         keepalive_expiry=s.keepalive_expiry,
                     ),
                 )
-                self._client = RemoteCheckerClient(self._http, settings=s)
+                self._client = CheckerAPIClient(self._http, settings=s)
 
             if self._client is None:
-                raise RuntimeError("RemoteCheckerClientFactory failed to initialize")
+                raise RuntimeError("CheckerAPIFactory failed to initialize")
 
             return self._client
 
 
 # Module-level default client helpers
-_default_factory: RemoteCheckerClientFactory | None = None
+_default_factory: CheckerAPIFactory | None = None
 
 
-async def get_remote_checks_client() -> RemoteCheckerClient:
-    """Return a process-wide shared RemoteCheckerClient (lazy init)."""
+async def get_checker_api_client() -> CheckerAPIClient:
+    """Return a process-wide shared CheckerAPIClient (lazy init)."""
 
     global _default_factory
     if _default_factory is None:
-        _default_factory = RemoteCheckerClientFactory()
+        _default_factory = CheckerAPIFactory()
     return await _default_factory.get()
 
 
 # TODO: fix leaking client. httpx closes TCP on idle, but still not cool
-async def close_remote_checks_client() -> None:
+async def close_checker_api_client() -> None:
     """Close the shared client pool and reset the default factory."""
 
     global _default_factory

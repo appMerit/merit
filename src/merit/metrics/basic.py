@@ -1,6 +1,6 @@
 """Basic metric implementations."""
 
-from merit.checks.base import CheckerResult
+from merit.checkers.base import CheckerResult
 from merit.metrics._base import Metric
 
 

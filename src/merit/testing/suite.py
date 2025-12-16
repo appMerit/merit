@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from merit.checks.base import Checker, CheckerResult
+from merit.checkers.base import Checker, CheckerResult
 from merit.testing.case import Case
 
 

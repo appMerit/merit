@@ -1,4 +1,5 @@
-from merit.checks import CheckerResult, get_remote_checks_client
+from .base import CheckerResult
+from .client import get_checker_api_client
 
 async def contradicts(actual: str, reference: str, context: str | None = None, strict: bool = True, metrics: list | None = None) -> CheckerResult:
     """

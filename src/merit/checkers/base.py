@@ -16,7 +16,7 @@ class SyncChecker(Protocol):
 
     A `Checker` compares an ``actual`` value to a ``reference`` value, optionally
     using additional ``context`` and configuration flags, and returns a
-    :class:`~merit.checks.base.CheckerResult`.
+    :class:`~merit.checkers.base.CheckerResult`.
 
     Parameters
     ----------
@@ -48,7 +48,7 @@ class AsyncChecker(Protocol):
 
     A `Checker` compares an ``actual`` value to a ``reference`` value, optionally
     using additional ``context`` and configuration flags, and returns a
-    :class:`~merit.checks.base.CheckerResult`.
+    :class:`~merit.checkers.base.CheckerResult`.
 
     Parameters
     ----------
@@ -82,7 +82,7 @@ Checker = AsyncChecker | SyncChecker
 class CheckerMetadata(BaseModel):
     """Metadata describing how a check was executed.
 
-    This model is attached to :class:`~merit.checks.base.CheckerResult` and is
+    This model is attached to :class:`~merit.checkers.base.CheckerResult` and is
     intended to make results self-describing and debuggable.
 
     Notes
@@ -127,7 +127,7 @@ class CheckerMetadata(BaseModel):
 
     def model_post_init(self, __context) -> None:
         """
-        Auto-fill the assertion_name and merit_name fields if not provided.
+        Auto-fill the checker_name and merit_name fields if not provided.
         """
         if self.checker_name or self.merit_name:
             return
@@ -192,7 +192,7 @@ class CheckerResult(BaseModel):
     """
     # Metadata
     id: UUID = Field(default_factory=uuid4)
-    checker: CheckerMetadata
+    checker_metadata: CheckerMetadata
     confidence: float = 1.0
 
     # Result
