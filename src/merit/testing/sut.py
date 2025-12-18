@@ -9,7 +9,7 @@ import inspect
 import os
 import re
 from collections.abc import Callable
-from typing import Any, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar, get_type_hints
 
 from merit.testing.resources import Scope, resource
 from merit.tracing import get_tracer
@@ -86,6 +86,9 @@ def _wrap_callable(fn: Callable[P, T], sut_name: str) -> Callable[[], Callable[P
     system doesn't try to resolve the original function's parameters.
     """
     is_async = inspect.iscoroutinefunction(fn)
+    original_signature = inspect.signature(fn)
+    original_type_hints = get_type_hints(fn, include_extras=True)
+
 
     if is_async:
 
@@ -96,6 +99,9 @@ def _wrap_callable(fn: Callable[P, T], sut_name: str) -> Callable[[], Callable[P
                 result = await fn(*args, **kwargs)
                 _set_output_attrs(span, result)
                 return result
+
+        traced.__merit_original_signature__ = original_signature  # type: ignore[attr-defined]
+        traced.__merit_original_type_hints__ = original_type_hints  # type: ignore[attr-defined]
 
         def factory() -> Callable[P, T]:
             return traced  # type: ignore[return-value]
@@ -109,6 +115,9 @@ def _wrap_callable(fn: Callable[P, T], sut_name: str) -> Callable[[], Callable[P
                 result = fn(*args, **kwargs)
                 _set_output_attrs(span, result)
                 return result
+
+        traced.__merit_original_signature__ = original_signature  # type: ignore[attr-defined]
+        traced.__merit_original_type_hints__ = original_type_hints  # type: ignore[attr-defined]
 
         def factory() -> Callable[P, T]:
             return traced  # type: ignore[return-value]
@@ -125,6 +134,8 @@ def _wrap_class(cls: type, sut_name: str, method_name: str) -> Callable[[], Any]
         instance = cls()
         original_method = getattr(instance, method_name)
         is_async = inspect.iscoroutinefunction(original_method)
+        original_signature = inspect.signature(original_method)
+        original_type_hints = get_type_hints(original_method)
 
         if is_async:
 
@@ -150,7 +161,10 @@ def _wrap_class(cls: type, sut_name: str, method_name: str) -> Callable[[], Any]
                 if method_name == "__call__":
                     __call__ = _traced_method
 
-            return TracedWrapper(instance)
+            wrapper = TracedWrapper(instance)
+            wrapper._traced_method.__merit_original_signature__ = original_signature  # type: ignore[attr-defined]
+            wrapper._traced_method.__merit_original_type_hints__ = original_type_hints  # type: ignore[attr-defined]
+            return wrapper
 
         class TracedWrapper:
             def __init__(self, wrapped: Any):
@@ -174,7 +188,10 @@ def _wrap_class(cls: type, sut_name: str, method_name: str) -> Callable[[], Any]
             if method_name == "__call__":
                 __call__ = _traced_method
 
-        return TracedWrapper(instance)
+        wrapper = TracedWrapper(instance)
+        wrapper._traced_method.__merit_original_signature__ = original_signature  # type: ignore[attr-defined]
+        wrapper._traced_method.__merit_original_type_hints__ = original_type_hints  # type: ignore[attr-defined]
+        return wrapper
 
     # Set name before registering so resource lookup works
     factory.__name__ = sut_name

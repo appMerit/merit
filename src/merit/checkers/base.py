@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Protocols for checking callables
 
+
 class SyncChecker(Protocol):
     """Callable protocol for check functions.
 
@@ -39,7 +40,12 @@ class SyncChecker(Protocol):
     """
 
     def __call__(
-        self, actual: Any, reference: Any, context: str | None = None, strict: bool = True, metrics: list | None = None
+        self,
+        actual: Any,
+        reference: Any,
+        context: str | None = None,
+        strict: bool = True,
+        metrics: list | None = None,
     ) -> "CheckerResult": ...
 
 
@@ -71,13 +77,20 @@ class AsyncChecker(Protocol):
     """
 
     async def __call__(
-        self, actual: Any, reference: Any, context: str | None = None, strict: bool = True, metrics: list | None = None
+        self,
+        actual: Any,
+        reference: Any,
+        context: str | None = None,
+        strict: bool = True,
+        metrics: list | None = None,
     ) -> "CheckerResult": ...
+
 
 Checker = AsyncChecker | SyncChecker
 
 
 # Models for metadata and result
+
 
 class CheckerMetadata(BaseModel):
     """Metadata describing how a check was executed.
@@ -107,6 +120,7 @@ class CheckerMetadata(BaseModel):
         Name of the enclosing "merit" function, if available (e.g. ``merit_*``).
         Read-only.
     """
+
     # Inputs
     actual: str
     reference: str
@@ -164,7 +178,6 @@ class CheckerMetadata(BaseModel):
             frame = frame.f_back
 
 
-
 class CheckerResult(BaseModel):
     """Result of a single checker evaluation.
 
@@ -190,8 +203,10 @@ class CheckerResult(BaseModel):
     - ``repr(result)`` returns JSON with ``None`` fields excluded and
       truncation enabled for long ``actual`` / ``reference`` strings.
     """
+
     # Metadata
     id: UUID = Field(default_factory=uuid4)
+    case_id: UUID | None = None
     checker_metadata: CheckerMetadata
     confidence: float = 1.0
 
