@@ -1,24 +1,19 @@
 """Merit - Testing framework for AI agents."""
 
-# from .assertions import (
-#     Assertion,
-#     AssertionFailedError,
-#     AssertionResult,
-#     Contains,
-#     ExactMatch,
-#     StartsWith,
-# )
 from .metrics import AverageScore, Metric, PassRate
-from .testing import Case, Suite, parametrize, resource, tag
+from .testing import Case, iter_cases, parametrize, resource, tag
 from .testing.sut import sut
 from .tracing import init_tracing, trace_step
 from .version import __version__
+from .checkers import checker
 
 
 __all__ = [
+    # Checkers
+    "checker",
     # Core testing
     "Case",
-    "Suite",
+    "iter_cases",
     "parametrize",
     "tag",
     "resource",

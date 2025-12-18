@@ -2,9 +2,10 @@
 
 import inspect
 import logging
+from functools import wraps
 from uuid import UUID, uuid4
 
-from typing import Any, Protocol
+from typing import Any, Awaitable, Callable, Protocol, overload, cast
 from pydantic import BaseModel, field_serializer, SerializationInfo, Field
 
 logger = logging.getLogger(__name__)
@@ -225,62 +226,112 @@ class CheckerResult(BaseModel):
         return self.value
 
 
+@overload
+def checker(func: Callable[[Any, Any], Awaitable[bool]]) -> AsyncChecker: ...
+
+
+@overload
+def checker(func: Callable[[Any, Any], bool]) -> SyncChecker: ...
+
+
+def checker(func: Callable[[Any, Any], bool] | Callable[[Any, Any], Awaitable[bool]]) -> Checker:
+    """Decorator to convert a simple comparison function into a full Checker.
+    
+    Wraps a function that takes (actual, reference) -> bool and converts it
+    to follow the Checker protocol, which includes optional context, strict,
+    and metrics parameters and returns a CheckerResult.
+    
+    Args:
+        func: A function that takes (actual, reference) and returns bool.
+              Can be sync or async.
+        
+    Returns:
+        A checker callable following the Checker protocol (SyncChecker or AsyncChecker).
+        
+    Example:
+        >>> @checker
+        >>> def equals(actual, reference):
+        >>>     return actual == reference
+        >>>
+        >>> result = equals(5, 5)
+        >>> assert result.value is True
+    """
+    if inspect.iscoroutinefunction(func):
+        @wraps(func)
+        async def async_wrapper(
+            actual: Any,
+            reference: Any,
+            context: str | None = None,
+            strict: bool = True,
+            metrics: list | None = None,
+        ) -> CheckerResult:
+            result = await func(actual, reference)
+            return CheckerResult(
+                checker_metadata=CheckerMetadata(
+                    actual=str(actual),
+                    reference=str(reference),
+                    context=context,
+                    strict=strict,
+                ),
+                value=bool(result),
+            )
+        return cast(AsyncChecker, async_wrapper)
+    else:
+        @wraps(func)
+        def sync_wrapper(
+            actual: Any,
+            reference: Any,
+            context: str | None = None,
+            strict: bool = True,
+            metrics: list | None = None,
+        ) -> CheckerResult:
+            result = func(actual, reference)
+            return CheckerResult(
+                checker_metadata=CheckerMetadata(
+                    actual=str(actual),
+                    reference=str(reference),
+                    context=context,
+                    strict=strict,
+                ),
+                value=bool(result),
+            )
+        return cast(SyncChecker, sync_wrapper)
+
+
 def make_lambda_checker(expr: str) -> Checker:
     """Create a checker from a lambda expression.
-
+    
     The lambda should accept (actual, reference) and return a boolean.
     Only safe built-in functions are allowed for security.
-
+    
     Args:
         expr: Lambda expression string, e.g., "lambda a, r: a == r"
-
+        
     Returns:
         A checker callable that wraps the lambda
-
+        
     Raises:
         ValueError: If expression contains forbidden names
         SyntaxError: If expression is not valid Python
     """
     allowed_names = {
-        "len",
-        "str",
-        "int",
-        "float",
-        "bool",
-        "list",
-        "dict",
-        "set",
-        "True",
-        "False",
-        "None",
-        "abs",
-        "min",
-        "max",
-        "sum",
-        "all",
-        "any",
-        "round",
-        "sorted",
-        "reversed",
-        "enumerate",
-        "zip",
-        "range",
+        "len", "str", "int", "float", "bool", "list", "dict", "set", 
+        "True", "False", "None", "abs", "min", "max", "sum", "all", "any",
+        "round", "sorted", "reversed", "enumerate", "zip", "range",
     }
-
+    
     code = compile(expr, "<lambda>", "eval")
     for name in code.co_names:
         if name not in allowed_names:
             raise ValueError(f"Forbidden name in lambda: '{name}'. Allowed: {allowed_names}")
-
-    func = eval(
-        expr, {"__builtins__": {}}, {n: globals()[n] for n in allowed_names if n in globals()}
-    )
-
+    
+    func = eval(expr, {"__builtins__": {}}, {n: globals()[n] for n in allowed_names if n in globals()})
+    
     def wrapper(
-        actual: Any,
-        reference: Any,
+        actual: Any, 
+        reference: Any, 
         context: str | None = None,
-        strict: bool = True,
+        strict: bool = True, 
         metrics: list | None = None,
     ) -> CheckerResult:
         return CheckerResult(
@@ -293,5 +344,6 @@ def make_lambda_checker(expr: str) -> Checker:
             ),
             value=bool(func(actual, reference)),
         )
-
+    
     return wrapper
+
