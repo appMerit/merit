@@ -223,3 +223,75 @@ class CheckerResult(BaseModel):
 
     def __bool__(self) -> bool:
         return self.value
+
+
+def make_lambda_checker(expr: str) -> Checker:
+    """Create a checker from a lambda expression.
+
+    The lambda should accept (actual, reference) and return a boolean.
+    Only safe built-in functions are allowed for security.
+
+    Args:
+        expr: Lambda expression string, e.g., "lambda a, r: a == r"
+
+    Returns:
+        A checker callable that wraps the lambda
+
+    Raises:
+        ValueError: If expression contains forbidden names
+        SyntaxError: If expression is not valid Python
+    """
+    allowed_names = {
+        "len",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "list",
+        "dict",
+        "set",
+        "True",
+        "False",
+        "None",
+        "abs",
+        "min",
+        "max",
+        "sum",
+        "all",
+        "any",
+        "round",
+        "sorted",
+        "reversed",
+        "enumerate",
+        "zip",
+        "range",
+    }
+
+    code = compile(expr, "<lambda>", "eval")
+    for name in code.co_names:
+        if name not in allowed_names:
+            raise ValueError(f"Forbidden name in lambda: '{name}'. Allowed: {allowed_names}")
+
+    func = eval(
+        expr, {"__builtins__": {}}, {n: globals()[n] for n in allowed_names if n in globals()}
+    )
+
+    def wrapper(
+        actual: Any,
+        reference: Any,
+        context: str | None = None,
+        strict: bool = True,
+        metrics: list | None = None,
+    ) -> CheckerResult:
+        return CheckerResult(
+            checker_metadata=CheckerMetadata(
+                actual=str(actual),
+                reference=str(reference),
+                context=context,
+                strict=strict,
+                checker_name="lambda",
+            ),
+            value=bool(func(actual, reference)),
+        )
+
+    return wrapper

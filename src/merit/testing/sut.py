@@ -89,7 +89,6 @@ def _wrap_callable(fn: Callable[P, T], sut_name: str) -> Callable[[], Callable[P
     original_signature = inspect.signature(fn)
     original_type_hints = get_type_hints(fn, include_extras=True)
 
-
     if is_async:
 
         async def traced(*args: P.args, **kwargs: P.kwargs) -> T:
@@ -122,6 +121,8 @@ def _wrap_callable(fn: Callable[P, T], sut_name: str) -> Callable[[], Callable[P
         def factory() -> Callable[P, T]:
             return traced  # type: ignore[return-value]
 
+    factory.__merit_original_signature__ = original_signature  # type: ignore[attr-defined]
+    factory.__merit_original_type_hints__ = original_type_hints  # type: ignore[attr-defined]
     factory.__name__ = sut_name
     factory.__doc__ = fn.__doc__
     return resource(factory, scope=Scope.SESSION)
@@ -130,12 +131,15 @@ def _wrap_callable(fn: Callable[P, T], sut_name: str) -> Callable[[], Callable[P
 def _wrap_class(cls: type, sut_name: str, method_name: str) -> Callable[[], Any]:
     """Wrap a class method and register instance as resource."""
 
+    instance = cls()
+    original_method = getattr(instance, method_name)
+    original_signature = inspect.signature(original_method)
+    original_type_hints = get_type_hints(original_method)
+
     def factory() -> Any:
         instance = cls()
         original_method = getattr(instance, method_name)
         is_async = inspect.iscoroutinefunction(original_method)
-        original_signature = inspect.signature(original_method)
-        original_type_hints = get_type_hints(original_method)
 
         if is_async:
 
@@ -195,6 +199,8 @@ def _wrap_class(cls: type, sut_name: str, method_name: str) -> Callable[[], Any]
 
     # Set name before registering so resource lookup works
     factory.__name__ = sut_name
+    factory.__merit_original_signature__ = original_signature  # type: ignore[attr-defined]
+    factory.__merit_original_type_hints__ = original_type_hints  # type: ignore[attr-defined]
     return resource(factory, scope=Scope.SESSION)
 
 
