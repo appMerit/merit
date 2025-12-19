@@ -3,8 +3,9 @@
 import inspect
 import logging
 from uuid import UUID, uuid4
+from functools import wraps
 
-from typing import Any, Protocol
+from typing import Any, Protocol, overload, Callable, Awaitable, cast
 from pydantic import BaseModel, field_serializer, SerializationInfo, Field
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,13 @@ class SyncChecker(Protocol):
     """
 
     def __call__(
-        self, actual: Any, reference: Any, context: str | None = None, strict: bool = True, metrics: list | None = None
+        self,
+        actual: Any,
+        reference: Any,
+        context: str | None = None,
+        strict: bool = True,
+        metrics: list | None = None,
+        case_id: UUID | None = None,
     ) -> "CheckerResult": ...
 
 
@@ -71,7 +78,13 @@ class AsyncChecker(Protocol):
     """
 
     async def __call__(
-        self, actual: Any, reference: Any, context: str | None = None, strict: bool = True, metrics: list | None = None
+        self,
+        actual: Any,
+        reference: Any,
+        context: str | None = None,
+        strict: bool = True,
+        metrics: list | None = None,
+        case_id: UUID | None = None,
     ) -> "CheckerResult": ...
 
 Checker = AsyncChecker | SyncChecker
@@ -192,6 +205,7 @@ class CheckerResult(BaseModel):
     """
     # Metadata
     id: UUID = Field(default_factory=uuid4)
+    case_id: UUID | None = None
     checker_metadata: CheckerMetadata
     confidence: float = 1.0
 
@@ -208,3 +222,112 @@ class CheckerResult(BaseModel):
 
     def __bool__(self) -> bool:
         return self.value
+
+
+def _filter_supported_kwargs(fn: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Return only kwargs that `fn` can accept."""
+    sig = inspect.signature(fn)
+    params = sig.parameters
+    accepts_varkw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+    if accepts_varkw:
+        return kwargs
+
+    return {k: v for k, v in kwargs.items() if k in params}
+
+
+@overload
+def checker(func: Callable[[Any, Any], Awaitable[bool]]) -> AsyncChecker: ...
+
+
+@overload
+def checker(func: Callable[[Any, Any], bool]) -> SyncChecker: ...
+
+
+def checker(func: Callable[[Any, Any], bool] | Callable[[Any, Any], Awaitable[bool]]) -> Checker:
+    """Decorator to convert a simple comparison function into a full Checker.
+    
+    Wraps a function that takes (actual, reference) -> bool and converts it
+    to follow the Checker protocol, which includes optional context, strict,
+    and metrics parameters and returns a CheckerResult.
+    
+    Args:
+        func: A function that takes (actual, reference) and returns bool.
+              Can be sync or async.
+        
+    Returns:
+        A checker callable following the Checker protocol (SyncChecker or AsyncChecker).
+        
+    Example:
+        >>> @checker
+        >>> def equals(actual, reference):
+        >>>     return actual == reference
+        >>>
+        >>> result = equals(5, 5)
+        >>> assert result.value is True
+    """
+    if inspect.iscoroutinefunction(func):
+        @wraps(func)
+        async def async_wrapper(
+            actual: Any,
+            reference: Any,
+            context: str | None = None,
+            strict: bool = True,
+            metrics: list | None = None,
+            case_id: UUID | None = None,
+        ) -> CheckerResult:
+            extra = _filter_supported_kwargs(
+                func,
+                {
+                    "context": context,
+                    "strict": strict,
+                    "metrics": metrics,
+                    "case_id": case_id,
+                },
+            )
+            result = await cast(Any, func)(actual, reference, **extra)
+            checker_result = CheckerResult(
+                checker_metadata=CheckerMetadata(
+                    actual=str(actual),
+                    reference=str(reference),
+                    context=context,
+                    strict=strict,
+                ),
+                case_id=case_id,
+                value=bool(result),
+            )
+            checker_result.checker_metadata.checker_name = func.__name__
+            return checker_result
+        return cast(AsyncChecker, async_wrapper)
+    else:
+        @wraps(func)
+        def sync_wrapper(
+            actual: Any,
+            reference: Any,
+            context: str | None = None,
+            strict: bool = True,
+            metrics: list | None = None,
+            case_id: UUID | None = None,
+        ) -> CheckerResult:
+            extra = _filter_supported_kwargs(
+                func,
+                {
+                    "context": context,
+                    "strict": strict,
+                    "metrics": metrics,
+                    "case_id": case_id,
+                },
+            )
+            result = cast(Any, func)(actual, reference, **extra)
+            checker_result = CheckerResult(
+                checker_metadata=CheckerMetadata(
+                    actual=str(actual),
+                    reference=str(reference),
+                    context=context,
+                    strict=strict,
+                ),
+                case_id=case_id,
+                value=bool(result),
+            )
+            checker_result.checker_metadata.checker_name = func.__name__
+            return checker_result
+        return cast(SyncChecker, sync_wrapper)

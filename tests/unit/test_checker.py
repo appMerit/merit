@@ -1,8 +1,9 @@
 import pytest
 import json
 import httpx
+from uuid import UUID
 
-from merit.checkers.base import CheckerResult, CheckerMetadata
+from merit.checkers.base import CheckerResult, CheckerMetadata, checker
 from merit.checkers.client import (
     CheckerAPIClient,
     CheckerAPIFactory,
@@ -155,3 +156,26 @@ async def test_module_level_get_and_close_work(monkeypatch: pytest.MonkeyPatch) 
     assert client3 is not client1
 
     await close_checker_api_client()
+
+
+def test_checker_decorator_supports_optional_kwargs():
+    @checker
+    def equals(actual: str, reference: str):
+        return actual == reference
+
+    result = equals("test", "test")
+
+    assert isinstance(result, CheckerResult)
+    assert result.checker_metadata.checker_name == "equals"
+    assert result.checker_metadata.actual == "test"
+    assert result.checker_metadata.reference == "test"
+
+
+def test_checker_decorator_supports_optional_kwargs_with_case_id():
+    @checker
+    def equals(actual: str, reference: str):
+        return actual == reference
+
+    result = equals("test", "test", case_id=UUID("123e4567-e89b-12d3-a456-426614174000"))
+
+    assert result.case_id == UUID("123e4567-e89b-12d3-a456-426614174000")
