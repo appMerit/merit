@@ -10,7 +10,8 @@ from types import ModuleType
 from typing import Any
 
 from merit.testing.parametrize import get_parameter_sets
-from merit.testing.tags import TagData, get_repeat_data, get_tag_data, merge_tag_data
+from merit.testing.repeat import get_repeat_data
+from merit.testing.tags import TagData, get_tag_data, merge_tag_data
 
 
 @dataclass

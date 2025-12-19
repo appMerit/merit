@@ -33,13 +33,13 @@ def merit_chatbot_farewell() -> None:
     response = simple_chatbot("friend")
     assert response.endswith("Goodbye!")
 
-@merit.tag.repeat(count=5)
+@merit.repeat(count=5)
 def merit_chatbot_stability() -> None:
     """Test that the chatbot consistently responds correctly."""
     response = simple_chatbot("tester")
     assert response == "Hello, tester!"
 
-@merit.tag.repeat(count=10, min_passes=8)
+@merit.repeat(count=10, min_passes=8)
 def merit_mostly_fail():
     """A test that fails too often and won't meet the minimum pass threshold.
     
