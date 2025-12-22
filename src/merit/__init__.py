@@ -1,15 +1,8 @@
 """Merit - Testing framework for AI agents."""
 
-# from .assertions import (
-#     Assertion,
-#     AssertionFailedError,
-#     AssertionResult,
-#     Contains,
-#     ExactMatch,
-#     StartsWith,
-# )
+from .predicates import predicate, PredicateResult, PredicateMetadata, Predicate
 from .metrics import AverageScore, Metric, PassRate
-from .testing import Case, parametrize, resource, tag, iter_cases, valididate_cases_for_sut
+from .testing import Case, parametrize, repeat, resource, tag, iter_cases, valididate_cases_for_sut
 from .testing.sut import sut
 from .tracing import init_tracing, trace_step
 from .version import __version__
@@ -21,9 +14,15 @@ __all__ = [
     "iter_cases",
     "valididate_cases_for_sut",
     "parametrize",
+    "repeat",
     "tag",
     "resource",
     "sut",
+    # Predicates
+    "predicate",
+    "PredicateResult",
+    "PredicateMetadata",
+    "Predicate",
     # Metrics
     "Metric",
     "PassRate",
