@@ -349,3 +349,100 @@ class TestForkForCase:
 
         assert v1 == v2 == 1
         assert call_count == 1
+
+
+class TestResourceHooks:
+    """Tests for on_resolve and on_teardown hooks."""
+
+    @pytest.mark.asyncio
+    async def test_on_resolve_called(self):
+        resolve_calls = []
+
+        def track_resolve(value):
+            resolve_calls.append(value)
+            return value
+
+        @resource(on_resolve=track_resolve)
+        def simple():
+            return 42
+
+        resolver = ResourceResolver(get_registry())
+        value = await resolver.resolve("simple")
+
+        assert value == 42
+        assert resolve_calls == [42]
+
+    @pytest.mark.asyncio
+    async def test_on_resolve_transforms_value(self):
+        @resource(on_resolve=lambda v: v * 2)
+        def doubled():
+            return 10
+
+        resolver = ResourceResolver(get_registry())
+        value = await resolver.resolve("doubled")
+
+        assert value == 20
+
+    @pytest.mark.asyncio
+    async def test_on_teardown_called_after_generator_teardown(self):
+        call_order = []
+
+        def on_teardown_hook(value):
+            call_order.append(("hook", value))
+
+        @resource(on_teardown=on_teardown_hook)
+        def gen_res():
+            yield "value"
+            call_order.append(("generator_teardown",))
+
+        resolver = ResourceResolver(get_registry())
+        await resolver.resolve("gen_res")
+        await resolver.teardown()
+
+        assert call_order == [("generator_teardown",), ("hook", "value")]
+
+    @pytest.mark.asyncio
+    async def test_on_teardown_with_teardown_scope(self):
+        teardown_hook_called = False
+
+        def on_teardown_hook(value):
+            nonlocal teardown_hook_called
+            teardown_hook_called = True
+
+        @resource(scope="case", on_teardown=on_teardown_hook)
+        def case_gen():
+            yield "case_value"
+
+        resolver = ResourceResolver(get_registry())
+        await resolver.resolve("case_gen")
+
+        assert not teardown_hook_called
+        await resolver.teardown_scope(Scope.CASE)
+        assert teardown_hook_called
+
+    @pytest.mark.asyncio
+    async def test_hooks_with_async_generator(self):
+        resolve_value = None
+        teardown_value = None
+
+        def on_resolve_hook(value):
+            nonlocal resolve_value
+            resolve_value = value
+            return value
+
+        def on_teardown_hook(value):
+            nonlocal teardown_value
+            teardown_value = value
+
+        @resource(on_resolve=on_resolve_hook, on_teardown=on_teardown_hook)
+        async def async_gen():
+            yield "async_value"
+
+        resolver = ResourceResolver(get_registry())
+        value = await resolver.resolve("async_gen")
+
+        assert value == "async_value"
+        assert resolve_value == "async_value"
+
+        await resolver.teardown()
+        assert teardown_value == "async_value"
