@@ -37,8 +37,8 @@ class MetricState:
     ci_95: tuple[float, float] | None = None
     ci_99: tuple[float, float] | None = None
     percentiles: list[float] | None = None
-    frequency_count: dict[int | float | bool, int] | None = None
-    frequency_share: dict[int | float | bool, float] | None = None
+    counter: dict[int | float | bool, int] | None = None
+    distribution: dict[int | float | bool, float] | None = None
     metric_value: int | float | bool | list[int | float | bool] | None = None
 
 @dataclass(slots=True)
@@ -61,9 +61,6 @@ class Metric:
             else:
                 self._raw_values.append(value)
                 self._float_values.append(float(value))
-
-    def push_to_dashboard(self):
-        print(f"Pushing metric {self.name} to dashboard")
 
     @property
     def raw_values(self) -> list[int | float | bool]:
@@ -203,18 +200,18 @@ class Metric:
     @property
     def frequency_count(self) -> dict[int | float | bool, int]:
         with self._values_lock:
-            if self._cache.frequency_count is None:
-                self._cache.frequency_count = dict[int | float | bool, int](Counter[int | float | bool](self._raw_values))
-            return self._cache.frequency_count
+            if self._cache.counter is None:
+                self._cache.counter = dict[int | float | bool, int](Counter[int | float | bool](self._raw_values))
+            return self._cache.counter
 
     @property
     def frequency_share(self) -> dict[int | float | bool, float]:
         with self._values_lock:
-            if self._cache.frequency_share is None:
+            if self._cache.distribution is None:
                 total = self.len
                 counts = self.frequency_count
-                self._cache.frequency_share = {k: v / total for k, v in counts.items()} if total > 0 else {}
-            return self._cache.frequency_share
+                self._cache.distribution = {k: v / total for k, v in counts.items()} if total > 0 else {}
+            return self._cache.distribution
 
     @property
     def metric_value(self) -> int | float | bool | list[int | float | bool] | None:
@@ -240,19 +237,20 @@ def metric(
     if fn is None:
         return lambda f: metric(f, scope=scope)
 
-    return_type = get_type_hints(fn).get("return")
-    # Allow Metric or Generator[Metric, Any, Any]
-    valid = (
-        return_type is Metric or
-        (
-            get_origin(return_type) in (Generator, ABCGenerator) and
-            get_args(return_type)[0] is Metric
-        )
-    )
-    if not valid:
-        raise TypeError(
-            f"Metric function '{fn.__name__}' must return a Metric or Generator[Metric, Any, Any]"
-        )
+    name = fn.__name__
+
+    def on_resolve_hook(metric: Metric) -> Metric:
+        if not isinstance(metric, Metric):
+            raise TypeError(f"Metric function '{fn.__name__}' must return a Metric or Generator[Metric, Any, Any]")
+
+        metric.name = name
+        metric.metadata = {"scope": str(scope)}
+
+        return metric
+
+    def on_teardown_hook(metric: Metric) -> None:
+        # push data to dashboard
+        return None
 
     fn.__merit_metric__ = True
 
