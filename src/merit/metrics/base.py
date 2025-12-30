@@ -10,11 +10,12 @@ computing, and managing metrics during test execution.
 import threading
 import math
 import statistics
+import warnings
 from datetime import UTC, datetime
 from collections import Counter
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
-from typing import Any, ParamSpec, Generator
+from typing import Any, ParamSpec
 from pydantic import validate_call
 
 from merit.testing.resources import Scope, resource
@@ -168,7 +169,7 @@ class Metric:
     @property
     def raw_values(self) -> list[int | float | bool]:
         with self._values_lock:
-            return list[int | float | bool](self._raw_values)
+            return list(self._raw_values)
 
     @property
     def len(self) -> int:
@@ -188,6 +189,9 @@ class Metric:
     def min(self) -> float:
         with self._values_lock:
             if self._cache.min is None:
+                if self.len == 0:
+                    warnings.warn(f"Cannot compute min for {self.name or 'unnamed metric'} - not enough values. Returning NaN.", stacklevel=2)
+                    return math.nan
                 self._cache.min = min(self._float_values)
             return self._cache.min
 
@@ -195,6 +199,9 @@ class Metric:
     def max(self) -> float:
         with self._values_lock:
             if self._cache.max is None:
+                if self.len == 0:
+                    warnings.warn(f"Cannot compute max for {self.name or 'unnamed metric'} - not enough values. Returning NaN.", stacklevel=2)
+                    return math.nan
                 self._cache.max = max(self._float_values)
             return self._cache.max
 
@@ -202,6 +209,9 @@ class Metric:
     def median(self) -> float:
         with self._values_lock:
             if self._cache.median is None:
+                if self.len == 0:
+                    warnings.warn(f"Cannot compute median for {self.name or 'unnamed metric'} - not enough values. Returning NaN.", stacklevel=2)
+                    return math.nan
                 self._cache.median = statistics.median(self._float_values)
             return self._cache.median
 
@@ -209,6 +219,9 @@ class Metric:
     def mean(self) -> float:
         with self._values_lock:
             if self._cache.mean is None:
+                if self.len == 0:
+                    warnings.warn(f"Cannot compute mean for {self.name or 'unnamed metric'} - not enough values. Returning NaN.", stacklevel=2)
+                    return math.nan
                 self._cache.mean = statistics.mean(self._float_values)
             return self._cache.mean
 
@@ -216,6 +229,9 @@ class Metric:
     def variance(self) -> float:
         with self._values_lock:
             if self._cache.variance is None:
+                if self.len < 2:
+                    warnings.warn(f"Cannot compute variance for {self.name or 'unnamed metric'} - not enough values. Returning NaN.", stacklevel=2)
+                    return math.nan
                 self._cache.variance = statistics.variance(self._float_values, xbar=self.mean)
             return self._cache.variance
 
@@ -223,6 +239,9 @@ class Metric:
     def std(self) -> float:
         with self._values_lock:
             if self._cache.std is None:
+                if self.len < 2:
+                    warnings.warn(f"Cannot compute std for {self.name or 'unnamed metric'} - not enough values. Returning NaN.", stacklevel=2)
+                    return math.nan
                 self._cache.std = statistics.stdev(self._float_values, xbar=self.mean)
             return self._cache.std
 
@@ -266,12 +285,16 @@ class Metric:
 
     @property
     def percentiles(self) -> list[float]:
-        """Compute percentiles once (n=100) for p25-p99."""
-        if self._cache.percentiles is None:
-            self._cache.percentiles = statistics.quantiles(
-                self._float_values, n=100, method="inclusive"
-            )
-        return self._cache.percentiles
+        with self._values_lock:
+            if self._cache.percentiles is None:
+                if self.len < 2:
+                    warnings.warn(f"Metric '{self.name or 'unnamed'}' has less than 2 values. Cannot compute percentiles.", stacklevel=2)
+                    self._cache.percentiles = [math.nan] * 99
+                else:
+                    self._cache.percentiles = statistics.quantiles(
+                        self._float_values, n=100, method="inclusive"
+                    )
+            return self._cache.percentiles
 
     @property
     def p25(self) -> float:
@@ -307,7 +330,7 @@ class Metric:
         with self._values_lock:
             if self._cache.counter is None:
                 self._cache.counter = dict[int | float | bool, int](
-                    Counter[int | float | bool](self._raw_values)
+                    Counter(self._raw_values)
                 )
             return self._cache.counter
 

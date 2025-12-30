@@ -161,7 +161,7 @@ class ResourceResolver:
                         await result
                 except Exception as e:
                     raise RuntimeError(f"Hook {defn.on_resolve.__name__} failed for resource '{name}': {e}") from e
-            return value
+            return result
 
         # Resolve dependencies first
         kwargs = {}
