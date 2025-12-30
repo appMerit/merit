@@ -35,6 +35,7 @@ class ResourceDef:
     is_async_generator: bool
     dependencies: list[str] = field(default_factory=list)
     on_resolve: Callable[[Any, dict[str, Any] | None], Any] | None = None
+    on_injection: Callable[[Any, dict[str, Any] | None], Any] | None = None
     on_teardown: Callable[[Any, dict[str, Any] | None], Any] | None = None
 
 
@@ -46,6 +47,7 @@ def resource(
     *,
     scope: Scope | str = Scope.CASE,
     on_resolve: Callable[[Any, dict[str, Any] | None], Any] | None = None,
+    on_injection: Callable[[Any, dict[str, Any] | None], Any] | None = None,
     on_teardown: Callable[[Any, dict[str, Any] | None], Any] | None = None,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     """Register a function as a resource for dependency injection.
@@ -53,7 +55,8 @@ def resource(
     Args:
         fn: The resource factory function.
         scope: Lifecycle scope - "case", "suite", or "session".
-        on_resolve: Callback invoked after value is created, can transform it.
+        on_resolve: Callback invoked only when the resource is first created.
+        on_injection: Callback invoked every time the resource is injected.
         on_teardown: Callback invoked after generator teardown (post-yield code) runs.
 
     Example:
@@ -89,6 +92,7 @@ def resource(
             is_async_generator=is_async_gen,
             dependencies=deps,
             on_resolve=on_resolve,
+            on_injection=on_injection,
             on_teardown=on_teardown,
         )
         _registry[defn.name] = defn
@@ -154,14 +158,17 @@ class ResourceResolver:
 
         if cache_key in self._cache:
             value = self._cache[cache_key]
-            if defn.on_resolve:
+            
+            # hook returns updated value on resource injection from cache
+            if defn.on_injection:
                 try:
-                    result = defn.on_resolve(value, context)
-                    if inspect.iscoroutine(result):
-                        await result
+                    value = defn.on_injection(value, context)
+                    if inspect.iscoroutine(value):
+                        value = await value
+                    return value
                 except Exception as e:
-                    raise RuntimeError(f"Hook {defn.on_resolve.__name__} failed for resource '{name}': {e}") from e
-            return result
+                    raise RuntimeError(f"Hook {defn.on_injection.__name__} failed for resource '{name}': {e}") from e
+            return value
 
         # Resolve dependencies first
         kwargs = {}
@@ -182,13 +189,12 @@ class ResourceResolver:
         else:
             value = defn.fn(**kwargs)
 
+        # hook returns updated value on resource creation
         if defn.on_resolve:
             try:
-                result = defn.on_resolve(value, context)
-                if inspect.iscoroutine(result):
-                    value = await result
-                else:
-                    value = result
+                value = defn.on_resolve(value, context)
+                if inspect.iscoroutine(value):
+                    value = await value
             except Exception as e:
                 raise RuntimeError(f"Hook {defn.on_resolve.__name__} failed for resource '{name}': {e}") from e
 
@@ -196,6 +202,16 @@ class ResourceResolver:
         # Sync cache to parent for SUITE/SESSION scopes
         if defn.scope in {Scope.SUITE, Scope.SESSION} and self._parent:
             self._parent._cache[cache_key] = value
+
+        # hook returns updated value on resource injection
+        if defn.on_injection:
+            try:
+                value = defn.on_injection(value, context)
+                if inspect.iscoroutine(value):
+                    value = await value
+            except Exception as e:
+                raise RuntimeError(f"Hook {defn.on_injection.__name__} failed for resource '{name}': {e}") from e
+
         return value
 
     async def resolve_many(self, names: list[str]) -> dict[str, Any]:
