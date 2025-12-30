@@ -352,10 +352,39 @@ class TestForkForCase:
 
 
 class TestResourceHooks:
-    """Tests for on_resolve and on_teardown hooks."""
+    """Tests for on_resolve, on_injection and on_teardown hooks."""
 
     @pytest.mark.asyncio
-    async def test_on_resolve_called(self):
+    async def test_on_injection_called(self):
+        injection_calls = []
+
+        def track_injection(value, context):
+            injection_calls.append(value)
+            return value
+
+        @resource(on_injection=track_injection)
+        def simple():
+            return 42
+
+        resolver = ResourceResolver(get_registry())
+        value = await resolver.resolve("simple")
+
+        assert value == 42
+        assert injection_calls == [42]
+
+    @pytest.mark.asyncio
+    async def test_on_injection_transforms_value(self):
+        @resource(on_injection=lambda v, context: v * 2)
+        def doubled():
+            return 10
+
+        resolver = ResourceResolver(get_registry())
+        value = await resolver.resolve("doubled")
+
+        assert value == 20
+
+    @pytest.mark.asyncio
+    async def test_on_resolve_called_once(self):
         resolve_calls = []
 
         def track_resolve(value, context):
@@ -367,21 +396,10 @@ class TestResourceHooks:
             return 42
 
         resolver = ResourceResolver(get_registry())
-        value = await resolver.resolve("simple")
+        await resolver.resolve("simple")
+        await resolver.resolve("simple")
 
-        assert value == 42
         assert resolve_calls == [42]
-
-    @pytest.mark.asyncio
-    async def test_on_resolve_transforms_value(self):
-        @resource(on_resolve=lambda v, context: v * 2)
-        def doubled():
-            return 10
-
-        resolver = ResourceResolver(get_registry())
-        value = await resolver.resolve("doubled")
-
-        assert value == 20
 
     @pytest.mark.asyncio
     async def test_on_teardown_called_after_generator_teardown(self):
@@ -422,19 +440,19 @@ class TestResourceHooks:
 
     @pytest.mark.asyncio
     async def test_hooks_with_async_generator(self):
-        resolve_value = None
+        injection_value = None
         teardown_value = None
 
-        def on_resolve_hook(value, context):
-            nonlocal resolve_value
-            resolve_value = value
+        def on_injection_hook(value, context):
+            nonlocal injection_value
+            injection_value = value
             return value
 
         def on_teardown_hook(value, context):
             nonlocal teardown_value
             teardown_value = value
 
-        @resource(on_resolve=on_resolve_hook, on_teardown=on_teardown_hook)
+        @resource(on_injection=on_injection_hook, on_teardown=on_teardown_hook)
         async def async_gen():
             yield "async_value"
 
@@ -442,13 +460,13 @@ class TestResourceHooks:
         value = await resolver.resolve("async_gen")
 
         assert value == "async_value"
-        assert resolve_value == "async_value"
+        assert injection_value == "async_value"
 
         await resolver.teardown()
         assert teardown_value == "async_value"
 
     @pytest.mark.asyncio
-    async def test_on_resolve_receives_custom_context(self):
+    async def test_on_injection_receives_custom_context(self):
         received_context = None
 
         def hook(value, context):
@@ -456,7 +474,7 @@ class TestResourceHooks:
             received_context = context
             return value
 
-        @resource(on_resolve=hook)
+        @resource(on_injection=hook)
         def simple():
             return 42
 
@@ -465,7 +483,7 @@ class TestResourceHooks:
         assert received_context == {"request_id": "123"}
 
     @pytest.mark.asyncio
-    async def test_on_resolve_receives_consumer_name_for_dependencies(self):
+    async def test_on_injection_receives_consumer_name_for_dependencies(self):
         contexts = {}
 
         def hook(value, context):
@@ -473,7 +491,7 @@ class TestResourceHooks:
             contexts[context.get("consumer_name")] = value
             return value
 
-        @resource(on_resolve=hook)
+        @resource(on_injection=hook)
         def dependency():
             return "dep_val"
 
@@ -495,11 +513,11 @@ class TestResourceHooks:
             history.append((context.get("consumer_name") if context else None, value))
             return value
 
-        @resource(on_resolve=hook)
+        @resource(on_injection=hook)
         def leaf():
             return "leaf"
 
-        @resource(on_resolve=hook)
+        @resource(on_injection=hook)
         def middle(leaf):
             return f"middle({leaf})"
 
@@ -516,7 +534,7 @@ class TestResourceHooks:
         ]
 
     @pytest.mark.asyncio
-    async def test_on_resolve_not_called_for_cached_resource(self):
+    async def test_on_injection_called_for_cached_resource(self):
         call_count = 0
 
         def hook(value, context):
@@ -524,7 +542,7 @@ class TestResourceHooks:
             call_count += 1
             return value
 
-        @resource(on_resolve=hook)
+        @resource(on_injection=hook)
         def cached_res():
             return "val"
 
@@ -532,5 +550,5 @@ class TestResourceHooks:
         await resolver.resolve("cached_res", context={"call": 1})
         await resolver.resolve("cached_res", context={"call": 2})
 
-        # Hook only called once during initial resolution
-        assert call_count == 1
+        # Hook called twice, once for each injection
+        assert call_count == 2

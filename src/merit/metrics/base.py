@@ -390,7 +390,9 @@ def metric(
     def on_resolve_hook(metric: Metric, context: dict[str, Any] | None) -> Metric:
         metric.name = name
         metric.metadata.scope = scope if isinstance(scope, Scope) else Scope(scope)
+        return metric
 
+    def on_injection_hook(metric: Metric, context: dict[str, Any] | None) -> Metric:
         if context:
             if merit_name := context.get("test_item_name", None):
                 metric.metadata.collected_from_merits.add(merit_name)
@@ -406,4 +408,10 @@ def metric(
         # TODO: implement pushing data to dashboard
         pass
 
-    return resource(fn, scope=scope, on_resolve=on_resolve_hook, on_teardown=on_teardown_hook)  # type: ignore
+    return resource(
+        fn,
+        scope=scope,
+        on_resolve=on_resolve_hook,
+        on_injection=on_injection_hook,
+        on_teardown=on_teardown_hook,
+    )  # type: ignore

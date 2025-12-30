@@ -112,8 +112,8 @@ async def test_metric_decorator_no_args():
 
 
 @pytest.mark.asyncio
-async def test_metric_on_resolve_hook_with_context():
-    """Test that metadata is updated during resolution with context."""
+async def test_metric_on_injection_hook_with_context():
+    """Test that metadata is updated during injection with context."""
     clear_registry()
 
     @metric(scope=Scope.CASE)
@@ -137,8 +137,8 @@ async def test_metric_on_resolve_hook_with_context():
 
 
 @pytest.mark.asyncio
-async def test_metric_on_resolve_cumulative_metadata():
-    """Test that metadata accumulates across multiple resolutions with different contexts."""
+async def test_metric_on_injection_cumulative_metadata():
+    """Test that metadata accumulates across multiple injections with different contexts."""
     clear_registry()
 
     @metric(scope=Scope.SESSION)
