@@ -2,82 +2,68 @@ import merit
 
 from merit.metrics.base import Metric
 
-from merit.testing.case import Case
-
-from typing import Generator, Any
-
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Metrics work on different scopes
-
-@merit.metric(scope="case")
-def hallucination_count() -> Metric:
-    metric = Metric(name="hallucination_count")
-    return metric
+# Composite metrics
 
 
 @merit.metric
-def avg_hallucinations_per_case() -> Generator[Metric, Any, Any]:
-    metric = Metric(name="avg_hallucinations_per_case")
+def accuracy():
+    metric = Metric()
     yield metric
+    
+    assert metric.distribution[True] == 0.5
 
-    assert metric.mean == 15
-    metric.push_to_dashboard()
-
-
-@merit.parametrize("hallucinations,id_suffix", [([1,2,3], "test1"), ([4,5,6], "test2"), ([7,8,9], "test3")])
-def merit_hallucinations_test(
-    hallucinations: int, 
-    id_suffix: str, 
-    hallucination_count: Metric, 
-    avg_hallucinations_per_case: Metric
-    ) -> None:
-    # Record the hallucinations to the case-level metric and push to dashboard
-    hallucination_count.record_values(hallucinations)
-    hallucination_count.metadata = {"id_suffix": id_suffix}
-    hallucination_count.metric_value = hallucination_count.sum
-    hallucination_count.push_to_dashboard()
-
-    # Record the hallucinations to the session-level metric to aggregate it later
-    avg_hallucinations_per_case.record_values(hallucination_count.metric_value)
-
-
-# Aggregated metrics
 
 @merit.metric
-def false_positives() -> Generator[Metric, Any, Any]:
-    metric = Metric(name="false_positives")
+def false_positives(accuracy: Metric):
+    metric = Metric()
     yield metric
 
-    metric.metric_value = metric.frequency_count[False]
-    assert metric.metric_value == 3
+    accuracy.add_record(metric.raw_values) # writes once collected all values
+    assert metric.counter[False] == 2
+
 
 @merit.metric
-def false_negatives() -> Generator[Metric, Any, Any]:
-    metric = Metric(name="false_negatives")
+def false_negatives(accuracy: Metric):
+    metric = Metric()
     yield metric
 
-    metric.metric_value = metric.frequency_count[False]
-    assert metric.metric_value == 1
-
-@merit.metric
-def accuracy(false_positives, false_negatives) -> Generator[Metric, Any, Any]:
-    metric = Metric(name="accuracy")
-    yield metric
-
-    metric.record_values(false_positives.raw_values + false_negatives.raw_values)
-    metric.metric_value = metric.frequency_share[True]
-    assert metric.metric_value > 0.25
-
-
+    accuracy.add_record(metric.raw_values) # writes once collected all values
+    assert metric.counter[False] == 1
 
 
 @merit.parametrize("pos", [False, True, True])
 def merit_positives_test(pos: bool, false_negatives: Metric):
-    false_negatives.record_values(pos)
+    false_negatives.add_record(pos) # writes per each iterated case
 
-@merit.parametrize("neg", [False, False, False])
+
+@merit.parametrize("neg", [False, False, True])
 def merit_negatives_test(neg: bool, false_positives: Metric):
-    false_positives.record_values(neg)
+    false_positives.add_record(neg) # writes per each iterated case
+
+
+# Case level vs session level
+
+
+@merit.metric(scope="session")
+def hallucinations_per_case():
+    metric = Metric()
+    yield metric
+
+    assert metric.mean == 10
+
+
+@merit.metric(scope="case")
+def hallucinations_counter(hallucinations_per_case: Metric):
+    metric = Metric()
+    yield metric
+
+    hallucinations_per_case.add_record(metric.raw_values) # writes per each iterated case
+
+
+@merit.parametrize("h", [5, 10, 15])
+def merit_hallucinations_test(h: int, hallucinations_counter: Metric):
+    hallucinations_counter.add_record(h) # writes per each iterated case

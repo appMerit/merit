@@ -4,7 +4,7 @@ import logging
 import threading
 import math
 import statistics
-import datetime
+from datetime import UTC, datetime
 from collections import Counter
 from collections.abc import Callable, Generator as ABCGenerator
 from dataclasses import dataclass, field, replace
@@ -20,9 +20,20 @@ logger = logging.getLogger(__name__)
 P = ParamSpec("P")
 
 
+@dataclass
+class MetricMetadata:
+    last_item_recorded_at: datetime | None = None
+    first_item_recorded_at: datetime | None = None
+    scope: Scope = field(default=Scope.SESSION)
+    collected_from_merits: set[str] = field(default_factory=set)
+    collected_from_resources: set[str] = field(default_factory=set)
+    collected_from_cases: set[str] = field(default_factory=set)
+
+
 @dataclass(slots=True)
 class MetricState:
     """Typed cache for computed metric values."""
+    # auto-computed values
     len: int | None = None
     sum: float | None = None
     min: float | None = None
@@ -39,12 +50,14 @@ class MetricState:
     percentiles: list[float] | None = None
     counter: dict[int | float | bool, int] | None = None
     distribution: dict[int | float | bool, float] | None = None
-    metric_value: int | float | bool | list[int | float | bool] | None = None
+    # final value of the metric
+    final_value: int | float | bool | list[int | float | bool] | None = None
+
 
 @dataclass(slots=True)
 class Metric:
-    name: str
-    metadata: dict[str, str | int | float | bool | None] | None = None
+    name: str | None = None
+    metadata: MetricMetadata = field(default_factory=MetricMetadata)
 
     _raw_values: list[int | float | bool] = field(default_factory=list, repr=False)
     _float_values: list[float] = field(default_factory=list, repr=False)
@@ -52,8 +65,11 @@ class Metric:
     _cache: MetricState = field(default_factory=MetricState, repr=False)
 
     @validate_call
-    def record_values(self, value: int | float | bool | list[int | float | bool]) -> None:
+    def add_record(self, value: int | float | bool | list[int] | list[float] | list[bool]) -> None:
         with self._values_lock:
+            if self.metadata.first_item_recorded_at is None:
+                self.metadata.first_item_recorded_at = datetime.now(UTC)
+            self.metadata.last_item_recorded_at = datetime.now(UTC)
             self._cache = MetricState()
             if isinstance(value, list):
                 self._raw_values.extend(value)
@@ -198,30 +214,31 @@ class Metric:
             return self.percentiles[98]
 
     @property
-    def frequency_count(self) -> dict[int | float | bool, int]:
+    def counter(self) -> dict[int | float | bool, int]:
         with self._values_lock:
             if self._cache.counter is None:
                 self._cache.counter = dict[int | float | bool, int](Counter[int | float | bool](self._raw_values))
             return self._cache.counter
 
     @property
-    def frequency_share(self) -> dict[int | float | bool, float]:
+    def distribution(self) -> dict[int | float | bool, float]:
         with self._values_lock:
             if self._cache.distribution is None:
                 total = self.len
-                counts = self.frequency_count
+                counts = self.counter
                 self._cache.distribution = {k: v / total for k, v in counts.items()} if total > 0 else {}
             return self._cache.distribution
 
     @property
-    def metric_value(self) -> int | float | bool | list[int | float | bool] | None:
+    def final_value(self) -> int | float | bool | list[int | float | bool] | None:
         with self._values_lock:
-            return self._cache.metric_value
+            return self._cache.final_value
 
-    @metric_value.setter
-    def metric_value(self, value: int | float | bool | list[int | float | bool] | None) -> None:
+    @final_value.setter
+    def final_value(self, value: int | float | bool | list[int | float | bool] | None) -> None:
         with self._values_lock:
-            self._cache.metric_value = value
+            self._cache.final_value = value
+
 
 def metric(
     fn: Callable[P, Metric] | Callable[P, Generator[Metric, Any, Any]] | None = None,
@@ -239,19 +256,23 @@ def metric(
 
     name = fn.__name__
 
-    def on_resolve_hook(metric: Metric) -> Metric:
-        if not isinstance(metric, Metric):
-            raise TypeError(f"Metric function '{fn.__name__}' must return a Metric or Generator[Metric, Any, Any]")
-
+    def on_resolve_hook(metric: Metric, context: dict[str, Any] | None) -> Metric:
         metric.name = name
-        metric.metadata = {"scope": str(scope)}
+        metric.metadata.scope = scope if isinstance(scope, Scope) else Scope(scope)
+
+        if context:
+            if merit_name := context.get("test_item_name", None):
+                metric.metadata.collected_from_merits.add(merit_name)
+            if case_id := context.get("test_item_id_suffix", None):
+                if "case" in context.get("test_item_params", []):
+                    metric.metadata.collected_from_cases.add(case_id)
+            if resource_name := context.get("consumer_name", None):
+                metric.metadata.collected_from_resources.add(resource_name)
 
         return metric
 
-    def on_teardown_hook(metric: Metric) -> None:
-        # push data to dashboard
-        return None
+    def on_teardown_hook(metric: Metric, context: dict[str, Any] | None) -> None:
+        # TODO: implement pushing data to dashboard
+        pass
 
-    fn.__merit_metric__ = True
-
-    return resource(fn, scope=scope) # type: ignore
+    return resource(fn, scope=scope, on_resolve=on_resolve_hook, on_teardown=on_teardown_hook) # type: ignore
