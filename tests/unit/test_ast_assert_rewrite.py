@@ -8,14 +8,14 @@ while capturing any PredicateResult or MetricResult values evaluated.
 import ast
 import pytest
 
-from merit.lib.assert_transformer import (
+from merit.core.assert_transformer import (
     AssertExprRewriter,
     AssertRewriteTransformer,
     build_injected_globals,
 )
 # Import dunder-prefixed helpers with non-mangled aliases to avoid Python's
 # name mangling when used inside test classes
-from merit.lib import assert_transformer as _at
+from merit.core import assert_transformer as _at
 record_assertion_result = _at.__merit_record_assertion_result
 capture_predicate = _at.__merit_capture_predicate
 capture_metric_attr = _at.__merit_capture_metric_attr

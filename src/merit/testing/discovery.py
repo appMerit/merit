@@ -16,7 +16,7 @@ from merit.testing.repeat import get_repeat_data
 from merit.testing.tags import TagData, get_tag_data, merge_tag_data
 
 if TYPE_CHECKING:
-    from merit.lib import MeritModuleLoader
+    from merit.core import MeritModuleLoader
 
 
 @dataclass
@@ -69,7 +69,7 @@ def _load_module(path: Path) -> ModuleType:
         ImportError: If the module cannot be loaded.
     """
     # Lazy import to avoid circular dependency with merit.lib
-    from merit.lib import MeritModuleLoader  # noqa: PLC0415
+    from merit.core import MeritModuleLoader
 
     loader = MeritModuleLoader(path.stem, path)
     spec = importlib.util.spec_from_file_location(path.stem, path, loader=loader)
