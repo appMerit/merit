@@ -3,7 +3,10 @@ from __future__ import annotations
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Iterator
+from typing import Iterator, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from merit.assertions.base import AssertionResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +35,7 @@ class TestContext:
     test_item_tags: list[str] = field(default_factory=list)
     test_item_params: list[str] = field(default_factory=list)
     test_item_id_suffix: str | None = None
+    assertion_results: list[AssertionResult] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
