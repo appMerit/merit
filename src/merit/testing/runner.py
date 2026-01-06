@@ -18,13 +18,13 @@ from opentelemetry.trace import StatusCode
 from rich.console import Console
 
 from merit.predicates import (
-    PredicateResult,
     close_predicate_api_client,
     create_predicate_api_client,
 )
 from merit.context import TestContext, ResolverContext, test_context_scope, resolver_context_scope
 from merit.testing.discovery import TestItem, collect
 from merit.testing.resources import ResourceResolver, Scope, get_registry
+from merit.assertions.base import AssertionResult
 from merit.tracing import clear_traces, get_tracer, init_tracing
 from merit.version import __version__
 
@@ -185,7 +185,7 @@ class TestResult:
     duration_ms: float
     error: Exception | None = None
     output: Any = None
-    predicate_results: list[PredicateResult] = field(default_factory=list) # TODO: implement collecting and printing predicate results
+    assertion_results: list[AssertionResult] = field(default_factory=list)
     repeat_runs: list["TestResult"] | None = None
 
 
