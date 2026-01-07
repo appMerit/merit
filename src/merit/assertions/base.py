@@ -41,7 +41,7 @@ class AssertionResult:
     expression_repr: str
     error_message: str | None = None
     predicate_results: list[PredicateResult] = field(default_factory=list)
-    metric_values: list[MetricValue] = field(default_factory=list)
+    metric_values: set[MetricValue] = field(default_factory=set)
 
     _passed: bool | None = field(default=None)
 

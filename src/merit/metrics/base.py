@@ -171,8 +171,8 @@ class Metric:
         """Helper to record metric property access in assertion context."""
         if as_ctx := ASSERTION_CONTEXT.get():
             full_name = f"{self.name or 'unnamed_metric'}.{prop_name}"
-            mv = MetricValue(metric_full_name=full_name, metric_value=value)
-            as_ctx.metric_values.append(mv)
+            mv = MetricValue(metric_full_name=full_name, metric_value=value) #TODO: fix type of value
+            as_ctx.metric_values.add(mv)
 
     @validate_call
     def add_record(self, value: int | float | bool | list[int] | list[float] | list[bool]) -> None:
