@@ -7,12 +7,14 @@ from typing import TYPE_CHECKING
 
 from rich.console import Console
 
+from merit.reports.base import Reporter
+
 if TYPE_CHECKING:
     from merit.testing.discovery import TestItem
     from merit.testing.runner import RunResult, TestResult
 
 
-class ConsoleReporter:
+class ConsoleReporter(Reporter):
     """Reporter that outputs test results to the console using Rich formatting."""
 
     def __init__(self, console: Console | None = None, verbosity: int = 0) -> None:

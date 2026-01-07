@@ -286,11 +286,23 @@ class Runner:
         self.enable_tracing = enable_tracing
         self.trace_output = Path(trace_output) if trace_output else Path("traces.jsonl")
 
-    async def _notify_reporters(self, method_name: str, *args: Any, **kwargs: Any) -> None:
-        """Notify all reporters of an event concurrently."""
-        await asyncio.gather(
-            *[getattr(reporter, method_name)(*args, **kwargs) for reporter in self.reporters]
-        )
+    async def _notify_no_tests_found(self) -> None:
+        await asyncio.gather(*[r.on_no_tests_found() for r in self.reporters])
+
+    async def _notify_collection_complete(self, items: list[TestItem]) -> None:
+        await asyncio.gather(*[r.on_collection_complete(items) for r in self.reporters])
+
+    async def _notify_test_complete(self, result: TestResult) -> None:
+        await asyncio.gather(*[r.on_test_complete(result) for r in self.reporters])
+
+    async def _notify_run_complete(self, run_result: RunResult) -> None:
+        await asyncio.gather(*[r.on_run_complete(run_result) for r in self.reporters])
+
+    async def _notify_run_stopped_early(self, failure_count: int) -> None:
+        await asyncio.gather(*[r.on_run_stopped_early(failure_count) for r in self.reporters])
+
+    async def _notify_tracing_enabled(self, output_path: Path) -> None:
+        await asyncio.gather(*[r.on_tracing_enabled(output_path) for r in self.reporters])
 
     async def run(self, items: list[TestItem] | None = None, path: str | None = None) -> RunResult:
         """Run tests and return results.
@@ -314,12 +326,12 @@ class Runner:
             items = collect(path)
 
         if not items:
-            await self._notify_reporters("on_no_tests_found")
+            await self._notify_no_tests_found()
             if run_result.environment:
                 run_result.environment.end_time = datetime.now(UTC)
             return run_result
 
-        await self._notify_reporters("on_collection_complete", items)
+        await self._notify_collection_complete(items)
 
         start = time.perf_counter()
 
@@ -338,11 +350,11 @@ class Runner:
         if run_result.environment:
             run_result.environment.end_time = datetime.now(UTC)
 
-        await self._notify_reporters("on_run_complete", run_result)
+        await self._notify_run_complete(run_result)
 
         # Tracing is streamed; surface the path for the user
         if self.enable_tracing:
-            await self._notify_reporters("on_tracing_enabled", self.trace_output)
+            await self._notify_tracing_enabled(self.trace_output)
 
         return run_result
 
@@ -354,14 +366,14 @@ class Runner:
         for item in items:
             result = await self._run_test(item, resolver)
             run_result.results.append(result)
-            await self._notify_reporters("on_test_complete", result)
+            await self._notify_test_complete(result)
             await resolver.teardown_scope(Scope.CASE)
 
             if result.status in {TestStatus.FAILED, TestStatus.ERROR}:
                 failures += 1
                 if self.maxfail and failures >= self.maxfail:
                     run_result.stopped_early = True
-                    await self._notify_reporters("on_run_stopped_early", self.maxfail)
+                    await self._notify_run_stopped_early(self.maxfail)
                     break
 
     async def _run_concurrent(
@@ -427,10 +439,10 @@ class Runner:
 
         for _, result in sorted_results:
             run_result.results.append(result)
-            await self._notify_reporters("on_test_complete", result)
+            await self._notify_test_complete(result)
 
         if run_result.stopped_early:
-            await self._notify_reporters("on_run_stopped_early", self.maxfail)
+            await self._notify_run_stopped_early(self.maxfail)
 
     async def _run_repeated_test(self, item: TestItem, resolver: ResourceResolver) -> TestResult:
         """Execute a test multiple times and aggregate results."""
