@@ -11,7 +11,7 @@ from merit.context import (
     ResolverContext,
     TestContext as Ctx,
     assertion_context_scope,
-    attach_metrics,
+    metrics,
     resolver_context_scope,
     test_context_scope as context_scope,
 )
@@ -74,7 +74,7 @@ def test_assertion_context_collects_predicate_results_and_metric_values():
     assert "m.min" in names
 
 
-def test_attach_metrics_records_assertion_passed_and_reads_test_context_for_metadata():
+def test_metrics_records_assertion_passed_and_reads_test_context_for_metadata():
     case_uuid = uuid4()
     test_ctx = Ctx(
         test_item_name="my_merit",
@@ -86,7 +86,7 @@ def test_attach_metrics_records_assertion_passed_and_reads_test_context_for_meta
     ar = AssertionResult(_passed=False, expression_repr="initial")
 
     with context_scope(test_ctx):
-        with attach_metrics([m1, m2]):
+        with metrics([m1, m2]):
             ar.passed = True
             ar.passed = False
 

@@ -8,7 +8,7 @@ from .context import (
     ASSERTION_CONTEXT,
     assertion_context_scope,
     METRIC_CONTEXT,
-    attach_metrics,
+    metrics,
 )
 
 __all__ = [
@@ -21,5 +21,5 @@ __all__ = [
     "resolver_context_scope",
     "test_context_scope",
     "assertion_context_scope",
-    "attach_metrics",
+    "metrics",
 ]

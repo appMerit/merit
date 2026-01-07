@@ -115,7 +115,7 @@ def assertion_context_scope(ctx: AssertionResult) -> Iterator[None]:
 
 
 @contextmanager
-def attach_metrics(ctx: List[Metric]) -> Iterator[None]:
+def metrics(ctx: List[Metric]) -> Iterator[None]:
     """Attach metrics to the current execution scope via `METRIC_CONTEXT`.
 
     Parameters
