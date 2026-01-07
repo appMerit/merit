@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from merit.metrics.base import MetricValue
 
 
+
 @dataclass
 class AssertionResult:
     """Result of evaluating a single assertion.
