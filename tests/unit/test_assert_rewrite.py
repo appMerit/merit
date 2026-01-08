@@ -30,7 +30,7 @@ def merit_sample():
 
     try:
         [item] = collect(mod_path)
-        ctx = TestContext(test_item_name="merit_sample")
+        ctx = TestContext(item=item)
         with context_scope_ctx(ctx):
             item.fn()
 
@@ -66,7 +66,7 @@ def merit_fail():
 
     try:
         [item] = collect(mod_path)
-        ctx = TestContext(test_item_name="merit_fail")
+        ctx = TestContext(item=item)
         with context_scope_ctx(ctx):
             item.fn()
 
@@ -98,7 +98,7 @@ def merit_metric_capture_multi():
 
     try:
         [item] = collect(mod_path)
-        ctx = TestContext(test_item_name="merit_metric_capture_multi")
+        ctx = TestContext(item=item)
         m = Metric(name="assert_outcomes")
         with context_scope_ctx(ctx), metrics_scope_ctx([m]):
             item.fn()
