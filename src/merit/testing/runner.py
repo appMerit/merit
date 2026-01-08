@@ -326,6 +326,7 @@ class Runner:
         *,
         reporters: list[Reporter] | None = None,
         maxfail: int | None = None,
+        fail_fast: bool = False,
         verbosity: int = 0,
         concurrency: int = 1,
         timeout: float | None = None,
@@ -338,6 +339,7 @@ class Runner:
             reporters if reporters is not None else [ConsoleReporter(verbosity=verbosity)]
         )
         self.maxfail = maxfail if maxfail and maxfail > 0 else None
+        self.fail_fast = fail_fast
         self.verbosity = verbosity
         self.timeout = timeout  # Per-test timeout in seconds
         # 0 = unlimited (capped at DEFAULT_MAX_CONCURRENCY), 1 = sequential, >1 = concurrent
@@ -391,6 +393,10 @@ class Runner:
             await self._notify_no_tests_found()
             merit_run.end_time = datetime.now(UTC)
             return merit_run
+        
+        if self.fail_fast:
+            for item in items:
+                item.fail_fast = True
 
         await self._notify_collection_complete(items)
 

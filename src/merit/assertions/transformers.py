@@ -51,10 +51,8 @@ class AssertTransformer(ast.NodeTransformer):
       so downstream instrumentation can record context tied to that
       ``AssertionResult`` instance.
     - Stores the boolean outcome on ``ar.passed``.
-    - Preserves the runtime semantics of ``assert`` by raising
-      :class:`AssertionError` when the assertion fails; if an ``assert`` message
-      is present, it is coerced to ``str`` and also stored on
-      ``ar.error_message``.
+    - If an ``assert`` message is present and the assertion fails, the message
+      is coerced to ``str`` and stored on ``ar.error_message``.
     """
 
     AR_VAR_NAME = "__merit_ar"
@@ -122,49 +120,30 @@ class AssertTransformer(ast.NodeTransformer):
         )
         ast.copy_location(set_passed, node)
 
-        # Create the failure test
-        fail_test = ast.UnaryOp(op=ast.Not(), operand=ast.Name(id=self.IS_PASSED_VAR_NAME, ctx=ast.Load()))
-        fail_body: list[ast.stmt]
-        if node.msg is not None:
-            msg_assign = ast.Assign(
-                targets=[ast.Name(id=self.MSG_VAR_NAME, ctx=ast.Store())],
-                value=node.msg,
-            )
-            set_error_message = ast.Assign(
-                targets=[
-                    ast.Attribute(
-                        value=ast.Name(id=self.AR_VAR_NAME, ctx=ast.Load()),
-                        attr="error_message",
-                        ctx=ast.Store(),
-                    )
-                ],
-                value=ast.Call(
-                    func=ast.Name(id="str", ctx=ast.Load()),
-                    args=[ast.Name(id=self.MSG_VAR_NAME, ctx=ast.Load())],
-                    keywords=[],
-                ),
-            )
-            raise_stmt = ast.Raise(
-                exc=ast.Call(
-                    func=ast.Name(id="AssertionError", ctx=ast.Load()),
-                    args=[ast.Name(id=self.MSG_VAR_NAME, ctx=ast.Load())],
-                    keywords=[],
-                ),
-                cause=None,
-            )
-            fail_body = [msg_assign, set_error_message, raise_stmt]
-        else:
-            raise_stmt = ast.Raise(
-                exc=ast.Call(
-                    func=ast.Name(id="AssertionError", ctx=ast.Load()),
-                    args=[],
-                    keywords=[],
-                ),
-                cause=None,
-            )
-            fail_body = [raise_stmt]
+        if node.msg is None:
+            return [ar_assign, eval_under_ctx, set_passed]
 
-        fail_if = ast.If(test=fail_test, body=fail_body, orelse=[])
+        # Get the error message if assertion did not pass and store it on the AssertionResult object
+        fail_test = ast.UnaryOp(op=ast.Not(), operand=ast.Name(id=self.IS_PASSED_VAR_NAME, ctx=ast.Load()))
+        msg_assign = ast.Assign(
+            targets=[ast.Name(id=self.MSG_VAR_NAME, ctx=ast.Store())],
+            value=node.msg,
+        )
+        set_error_message = ast.Assign(
+            targets=[
+                ast.Attribute(
+                    value=ast.Name(id=self.AR_VAR_NAME, ctx=ast.Load()),
+                    attr="error_message",
+                    ctx=ast.Store(),
+                )
+            ],
+            value=ast.Call(
+                func=ast.Name(id="str", ctx=ast.Load()),
+                args=[ast.Name(id=self.MSG_VAR_NAME, ctx=ast.Load())],
+                keywords=[],
+            ),
+        )
+        fail_if = ast.If(test=fail_test, body=[msg_assign, set_error_message], orelse=[])
         ast.copy_location(fail_if, node)
 
         return [ar_assign, eval_under_ctx, set_passed, fail_if]
