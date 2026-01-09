@@ -40,31 +40,23 @@ class AssertionResult:
     """
 
     expression_repr: str
+    passed: bool
     error_message: str | None = None
     predicate_results: list[PredicateResult] = field(default_factory=list)
     metric_values: set[MetricValue] = field(default_factory=set)
 
-    _passed: bool | None = field(default=None)
-
     def __post_init__(self) -> None:
-        if collector := ASSERTION_RESULTS_COLLECTOR.get():
+        collector = ASSERTION_RESULTS_COLLECTOR.get()
+        if collector is not None:
             collector.append(self)
 
-    @property
-    def passed(self) -> bool:
-        if self._passed is None:
-            raise ValueError("AssertionResult.passed is not set")
-        return self._passed
-
-    @passed.setter
-    def passed(self, passed: bool) -> None:
-        if metrics := METRIC_CONTEXT.get():
+        metrics = METRIC_CONTEXT.get()
+        if metrics is not None:
             for metric in metrics:
-                metric.add_record(passed)
+                metric.add_record(self.passed)
 
-        if test_ctx := TEST_CONTEXT.get():
-            if test_ctx.item.fail_fast and not passed:
+        test_ctx = TEST_CONTEXT.get()
+        if test_ctx is not None:
+            if test_ctx.item.fail_fast and not self.passed:
                 msg = self.error_message or f"Assertion failed: {self.expression_repr}"
                 raise AssertionError(msg)
-
-        self._passed = passed

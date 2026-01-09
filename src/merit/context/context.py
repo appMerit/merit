@@ -50,7 +50,6 @@ METRIC_VALUES_COLLECTOR: ContextVar[List[MetricValue] | None] = ContextVar("metr
 
 TEST_CONTEXT: ContextVar[TestContext | None] = ContextVar("test_context", default=None)
 RESOLVER_CONTEXT: ContextVar[ResolverContext | None] = ContextVar("resolver_context", default=None)
-ASSERTION_CONTEXT: ContextVar[AssertionResult | None] = ContextVar("assertion_context", default=None)
 METRIC_CONTEXT: ContextVar[List[Metric] | None] = ContextVar("metric_context", default=None)
 MERIT_RUN_CONTEXT: ContextVar[MeritRun | None] = ContextVar("merit_run_context", default=None)
 
@@ -122,22 +121,6 @@ def resolver_context_scope(ctx: ResolverContext) -> Iterator[None]:
         yield
     finally:
         RESOLVER_CONTEXT.reset(token)
-
-
-@contextmanager
-def assertion_context_scope(ctx: AssertionResult) -> Iterator[None]:
-    """Temporarily set `ASSERTION_CONTEXT` for the duration of the ``with`` block.
-
-    Parameters
-    ----------
-    ctx : AssertionResult
-        The assertion result object to bind as the current assertion context.
-    """
-    token = ASSERTION_CONTEXT.set(ctx)
-    try:
-        yield
-    finally:
-        ASSERTION_CONTEXT.reset(token)
 
 
 @contextmanager
