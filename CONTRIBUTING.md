@@ -72,17 +72,17 @@ Use descriptive branch names:
 Run the full test suite:
 
 ```bash
-uv run pytest
+uv run merit test
 ```
 
 Run specific tests:
 
 ```bash
-uv run pytest tests/unit/test_runner.py
-uv run pytest -k test_specific_function
+uv run merit test tests/unit/test_runner.py
+uv run merit test -k test_specific_function
 ```
 
-Run with coverage:
+Run with coverage (using pytest for coverage reporting):
 
 ```bash
 uv run pytest --cov=merit --cov-report=html
@@ -129,7 +129,7 @@ uv run ruff format .
 uv run mypy .
 
 # Test
-uv run pytest
+uv run merit test
 ```
 
 ---
@@ -301,7 +301,7 @@ Closes #123
 
 Before submitting, ensure:
 
-- [ ] Tests pass: `uv run pytest`
+- [ ] Tests pass: `uv run merit test`
 - [ ] Linting passes: `uv run ruff check .`
 - [ ] Type checking passes: `uv run mypy .`
 - [ ] Code is formatted: `uv run ruff format .`

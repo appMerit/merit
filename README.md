@@ -3,9 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-Data validation and testing framework for AI systems using Python type hints.
-
-Fast and extensible, Merit plays nicely with your linters/IDE/brain. Define how your AI should behave in pure, canonical Python 3.12+; validate it with Merit.
+Testing framework for AI systems with a familiar pytest-like interface and semantic assertions.
 
 ---
 
@@ -44,7 +42,7 @@ def merit_chatbot_responds():
 Run it:
 
 ```bash
-merit
+merit test
 ```
 
 Output:
@@ -142,16 +140,21 @@ from merit import Case
 def chatbot(prompt: str) -> str:
     return f"Response to: {prompt}"
 
-def merit_chatbot_cases():
+@merit.iter_cases([
+    Case(
+        sut_input_values={"prompt": "Hello"},
+        references={"expected": "Response to: Hello"}
+    ),
+    Case(
+        sut_input_values={"prompt": "Hi"},
+        references={"expected": "Response to: Hi"}
+    ),
+])
+def merit_chatbot_cases(case: Case):
     """Test using Case objects."""
-    cases = [
-        Case(input="Hello", expected="Response to: Hello"),
-        Case(input="Hi", expected="Response to: Hi"),
-    ]
-    
-    for case in cases:
-        result = chatbot(case.input)
-        assert result == case.expected
+    result = chatbot(**case.sut_input_values)
+    if case.references:
+        assert result == case.references["expected"]
 ```
 
 ---
@@ -200,25 +203,25 @@ See [AI Predicates documentation](https://docs.appmerit.com/predicates/overview)
 Run all tests:
 
 ```bash
-merit
+merit test
 ```
 
 Run specific file:
 
 ```bash
-merit test_example.py
+merit test test_example.py
 ```
 
 Run tests matching pattern:
 
 ```bash
-merit -k chatbot
+merit test -k chatbot
 ```
 
 Run with concurrency:
 
 ```bash
-merit --concurrency 10
+merit test --concurrency 10
 ```
 
 See [Running Tests documentation](https://docs.appmerit.com/core/running-tests) for more options.
@@ -278,7 +281,7 @@ In summary, you declare your tests as functions with standard Python syntax.
 
 You do that with:
 
-- Standard Python type hints
+- Test functions (starting with `merit_`)
 - Resources (similar to pytest fixtures)
 - Parametrization for testing multiple inputs
 - Case objects for complex test scenarios
@@ -338,8 +341,8 @@ We welcome contributions! To get started:
 3. Create a branch: `git checkout -b your-feature-name`
 4. Install dependencies: `uv sync`
 5. Make your changes
-6. Run tests: `pytest`
-7. Run lints: `make lint` or `ruff check .`
+6. Run tests: `uv run merit test`
+7. Run lints: `uv run ruff check .`
 8. Submit a pull request
 
 For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -355,23 +358,12 @@ cd merit
 uv sync
 
 # Run tests
-uv run pytest
+uv run merit test
 
 # Run lints
 uv run ruff check .
 uv run mypy .
 ```
-
----
-
-## Dependencies
-
-Merit depends on [Pydantic](https://github.com/pydantic/pydantic) for data validation and [Rich](https://github.com/Textualize/rich) for terminal output.
-
-Optional dependencies:
-- **openai** - For OpenAI-based AI predicates
-- **anthropic** - For Anthropic-based AI predicates
-- **opentelemetry-sdk** - For distributed tracing
 
 ---
 
