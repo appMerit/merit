@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from merit.predicates.base import PredicateResult
     from merit.testing.discovery import TestItem
     from merit.testing.runner import MeritRun
+    from merit.metrics.base import MetricResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +48,8 @@ class ResolverContext:
 ASSERTION_RESULTS_COLLECTOR: ContextVar[List[AssertionResult] | None] = ContextVar("assertion_results_collector", default=None)
 PREDICATE_RESULTS_COLLECTOR: ContextVar[List[PredicateResult] | None] = ContextVar("predicate_results_collector", default=None)
 METRIC_VALUES_COLLECTOR: ContextVar[List[MetricValue] | None] = ContextVar("metric_values_collector", default=None)
+METRIC_RESULTS_COLLECTOR: ContextVar[List[MetricResult] | None] = ContextVar("metric_results_collector", default=None)
+RETURN_EXPRESSION_COLLECTOR: ContextVar[str | None] = ContextVar("return_expression_collector", default=None)
 
 TEST_CONTEXT: ContextVar[TestContext | None] = ContextVar("test_context", default=None)
 RESOLVER_CONTEXT: ContextVar[ResolverContext | None] = ContextVar("resolver_context", default=None)
@@ -89,6 +92,24 @@ def metric_values_collector(ctx: List[MetricValue]) -> Iterator[None]:
         yield
     finally:
         METRIC_VALUES_COLLECTOR.reset(token)
+
+
+@contextmanager
+def metric_results_collector(ctx: List[MetricResult]) -> Iterator[None]:
+    token = METRIC_RESULTS_COLLECTOR.set(ctx)
+    try:
+        yield
+    finally:
+        METRIC_RESULTS_COLLECTOR.reset(token)
+
+
+@contextmanager
+def return_expression_collector(ctx: str) -> Iterator[None]:
+    token = RETURN_EXPRESSION_COLLECTOR.set(ctx)
+    try:
+        yield
+    finally:
+        RETURN_EXPRESSION_COLLECTOR.reset(token)
 
 
 @contextmanager

@@ -11,15 +11,20 @@ import threading
 import math
 import statistics
 import warnings
+import functools
+import inspect
 from datetime import UTC, datetime
 from collections import Counter
 from collections.abc import Callable, Generator
-from dataclasses import dataclass, field
-from typing import Any, ParamSpec
+from dataclasses import dataclass, field, replace
+from typing import Any, ParamSpec, TYPE_CHECKING
 from pydantic import validate_call
 
-from merit.context import RESOLVER_CONTEXT, TEST_CONTEXT, METRIC_VALUES_COLLECTOR
+from merit.context import RESOLVER_CONTEXT, TEST_CONTEXT, METRIC_VALUES_COLLECTOR, assertions_collector, METRIC_RESULTS_COLLECTOR, return_expression_collector, RETURN_EXPRESSION_COLLECTOR
 from merit.testing.resources import Scope, resource
+
+if TYPE_CHECKING:
+    from merit.assertions.base import AssertionResult
 
 
 P = ParamSpec("P")
@@ -465,6 +470,18 @@ class Metric:
             self._cache.final_value = value
 
 
+@dataclass(slots=True)
+class MetricResult:
+    """
+    Result of a metric 
+    """
+    name: str
+    metadata: MetricMetadata
+    assertion_results: list[AssertionResult]
+    value: int | float | bool | list[int | float | bool] | tuple[float, float] | tuple[float, float, float]
+    expression_repr: str | None = None
+
+
 def metric(
     fn: Callable[P, Metric] | Callable[P, Generator[Metric, Any, Any]] | None = None,
     *,
@@ -496,29 +513,90 @@ def metric(
 
     name = fn.__name__
 
-    def on_resolve_hook(metric: Metric) -> Metric:
-        if not isinstance(metric, Metric):
-            raise ValueError(f"Metric {metric} is not a valid Metric instance.")
+    is_generator = inspect.isgeneratorfunction(fn)
+    is_async_generator = inspect.isasyncgenfunction(fn)
 
-        metric.name = name
-        metric.metadata.scope = scope if isinstance(scope, Scope) else Scope(scope)
-        return metric
+    def on_resolve_hook(m: Metric) -> Metric:
+        m.name = name
+        m.metadata.scope = scope if isinstance(scope, Scope) else Scope(scope)
+        return m
 
-    def on_injection_hook(metric: Metric) -> Metric:
+    def on_injection_hook(m: Metric) -> Metric:
         resolver_ctx = RESOLVER_CONTEXT.get()
         if resolver_ctx is not None:
             if resolver_ctx.consumer_name:
-                metric.metadata.collected_from_resources.add(resolver_ctx.consumer_name)
-        return metric
+                m.metadata.collected_from_resources.add(resolver_ctx.consumer_name)
+        return m
 
-    def on_teardown_hook(metric: Metric) -> None:
-        # TODO: implement pushing data to dashboard
-        pass
+    if is_generator:
+        @functools.wraps(fn)
+        def wrapped_gen(*args: Any, **kwargs: Any) -> Generator[Metric, Any, Any]:
+            assertions_results = []
+            return_expression = "placeholder"
+            with assertions_collector(assertions_results), return_expression_collector(return_expression):
+                gen = fn(*args, **kwargs)
+                metric_instance: Metric = next(gen)
+                yield metric_instance
+                try:
+                    next(gen)
+                except StopIteration as e:
+                    if e.value is None:
+                        value = math.nan
+                    else:
+                        value = e.value
+                    parsed_expression = return_expression if return_expression != "placeholder" else None
+                    result = MetricResult(
+                        name=name,
+                        metadata=replace(metric_instance.metadata), # use replace to create a copy
+                        assertion_results=assertions_results,
+                        value=value,
+                        expression_repr=parsed_expression,
+                    )
+                    collector = METRIC_RESULTS_COLLECTOR.get()
+                    if collector is not None:
+                        collector.append(result)
 
-    return resource(
-        fn,
-        scope=scope,
-        on_resolve=on_resolve_hook,
-        on_injection=on_injection_hook,
-        on_teardown=on_teardown_hook,
-    )  # type: ignore
+        return resource(
+            wrapped_gen,
+            scope=scope,
+            on_resolve=on_resolve_hook,
+            on_injection=on_injection_hook,
+        )
+
+    elif is_async_generator:
+        @functools.wraps(fn)
+        async def wrapped_async_gen(*args: Any, **kwargs: Any):
+            assertions_results = []
+            return_expression = "placeholder"
+            with assertions_collector(assertions_results), return_expression_collector(return_expression):
+                gen = fn(*args, **kwargs)
+                metric_instance: Metric = await gen.__anext__()
+                yield metric_instance
+                try:
+                    await gen.__anext__()
+                except StopIteration as e:
+                    if e.value is None:
+                        value = math.nan
+                    else:
+                        value = e.value
+                    parsed_expression = return_expression if return_expression != "placeholder" else None
+                    result = MetricResult(
+                        name=name,
+                        metadata=replace(metric_instance.metadata), # use replace to create a copy
+                        assertion_results=assertions_results,
+                        value=value,
+                        expression_repr=parsed_expression,
+                    )
+                    collector = METRIC_RESULTS_COLLECTOR.get()
+                    if collector is not None:
+                        collector.append(result)
+
+        return resource(
+            wrapped_async_gen,
+            scope=scope,
+            on_resolve=on_resolve_hook,
+            on_injection=on_injection_hook,
+        )
+
+    else:
+        raise ValueError(f"{fn.__name__} is not a generator and can't be wrapped as a metric. Make sure {fn.__name__} yields a Metric instance and returns a final calculated value.")
