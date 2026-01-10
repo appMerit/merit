@@ -7,7 +7,7 @@ from typing import Iterator, TYPE_CHECKING, List
 
 if TYPE_CHECKING:
     from merit.assertions.base import AssertionResult
-    from merit.metrics.base import Metric, MetricValue
+    from merit.metrics.base import Metric, MetricSnapshot
     from merit.predicates.base import PredicateResult
     from merit.testing.discovery import TestItem
     from merit.testing.runner import MeritRun
@@ -47,7 +47,7 @@ class ResolverContext:
 
 ASSERTION_RESULTS_COLLECTOR: ContextVar[List[AssertionResult] | None] = ContextVar("assertion_results_collector", default=None)
 PREDICATE_RESULTS_COLLECTOR: ContextVar[List[PredicateResult] | None] = ContextVar("predicate_results_collector", default=None)
-METRIC_VALUES_COLLECTOR: ContextVar[List[MetricValue] | None] = ContextVar("metric_values_collector", default=None)
+METRIC_VALUES_COLLECTOR: ContextVar[List[MetricSnapshot] | None] = ContextVar("metric_values_collector", default=None)
 METRIC_RESULTS_COLLECTOR: ContextVar[List[MetricResult] | None] = ContextVar("metric_results_collector", default=None)
 
 TEST_CONTEXT: ContextVar[TestContext | None] = ContextVar("test_context", default=None)
@@ -85,7 +85,7 @@ def predicate_results_collector(ctx: List[PredicateResult]) -> Iterator[None]:
         PREDICATE_RESULTS_COLLECTOR.reset(token)
 
 @contextmanager
-def metric_values_collector(ctx: List[MetricValue]) -> Iterator[None]:
+def metric_values_collector(ctx: List[MetricSnapshot]) -> Iterator[None]:
     token = METRIC_VALUES_COLLECTOR.set(ctx)
     try:
         yield

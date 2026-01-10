@@ -147,23 +147,20 @@ def test_metric_values_collector_records_property_access_with_normalized_values(
     values = []
     m = Metric("m")
     m.add_record([1, 2, 2])
-    m.final_value = 7
 
     with metric_values_collector(values):
         _ = m.raw_values
         _ = m.counter
         _ = m.distribution
-        _ = m.final_value
 
     by_name = {}
     for mv in values:
-        by_name[mv.metric_full_name] = mv.metric_value
+        by_name[mv.full_name] = mv.value
 
     assert by_name["m.raw_values"] == (1, 2, 2)
     assert by_name["m.counter"] == ((1, 1), (2, 2))
     assert by_name["m.distribution"][0] == (1, pytest.approx(1 / 3))
     assert by_name["m.distribution"][1] == (2, pytest.approx(2 / 3))
-    assert by_name["m.final_value"] == 7
 
 
 def test_metric_values_collector_uses_default_name_when_metric_is_unnamed():
@@ -172,8 +169,8 @@ def test_metric_values_collector_uses_default_name_when_metric_is_unnamed():
     with metric_values_collector(values):
         assert m.len == 0
 
-    assert values[-1].metric_full_name == "unnamed_metric.len"
-    assert values[-1].metric_value == 0
+    assert values[-1].full_name == "unnamed_metric.len"
+    assert values[-1].value == 0
 
 
 def test_metric_result_is_collected_when_collector_is_active():
@@ -269,7 +266,8 @@ async def test_metric_decorator_emits_metric_result_on_teardown_with_assertions_
         AssertionResult(expression_repr="before", passed=True)
         yield Metric("ignored")
         AssertionResult(expression_repr="after", passed=False)
-        return 123
+        yield 123
+        return 999  # ignored: metric final value comes from the second yield
 
     resolver = ResourceResolver()
     metric_results = []
@@ -288,19 +286,40 @@ async def test_metric_decorator_emits_metric_result_on_teardown_with_assertions_
 
 
 @pytest.mark.asyncio
-async def test_metric_decorator_emits_nan_when_generator_returns_none():
+async def test_metric_decorator_emits_nan_when_generator_returns_value_but_does_not_yield_final_value():
     clear_registry()
 
     @metric(scope=Scope.CASE)
-    def none_metric():
+    def return_only_metric():
         yield Metric("ignored")
-        return None
+        return 123  # ignored: no second yield -> NaN
 
     resolver = ResourceResolver()
     metric_results = []
     with metric_results_collector(metric_results):
-        await resolver.resolve("none_metric")
+        await resolver.resolve("return_only_metric")
         await resolver.teardown()
 
     assert len(metric_results) == 1
     assert math.isnan(metric_results[0].value)
+
+
+@pytest.mark.asyncio
+async def test_metric_decorator_uses_second_yield_value_and_ignores_return_value():
+    clear_registry()
+
+    @metric(scope=Scope.CASE)
+    def yield_and_return_metric():
+        yield Metric("ignored")
+        yield 111
+        return 222  # ignored
+
+    resolver = ResourceResolver()
+    metric_results = []
+    with metric_results_collector(metric_results):
+        await resolver.resolve("yield_and_return_metric")
+        await resolver.teardown()
+
+    assert len(metric_results) == 1
+    assert metric_results[0].name == "yield_and_return_metric"
+    assert metric_results[0].value == 111

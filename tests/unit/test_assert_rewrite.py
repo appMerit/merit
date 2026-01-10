@@ -45,7 +45,7 @@ def merit_sample():
         assert len(ar.predicate_results) == 1
         assert ar.predicate_results[0].predicate_metadata.predicate_name == "equals"
 
-        names = {mv.metric_full_name for mv in ar.metric_values}
+        names = {mv.full_name for mv in ar.metric_values}
         assert "m.len" in names
     finally:
         sys.modules.pop(mod_name, None)

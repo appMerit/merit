@@ -80,7 +80,7 @@ def test_assertion_context_collects_predicate_results_and_metric_values():
             assert pr.case_id == UUID(str(case_uuid))
             assert pr.predicate_metadata.merit_name == "merit_name"
 
-            # Metric property access should push MetricValue into the collector
+            # Metric property access should push MetricSnapshot into the collector
             assert m.len == 3
             assert m.min == 1
 
@@ -95,7 +95,7 @@ def test_assertion_context_collects_predicate_results_and_metric_values():
     assert len(ar.predicate_results) == 1
     assert ar.predicate_results[0] == pr
 
-    names = {mv.metric_full_name for mv in ar.metric_values}
+    names = {mv.full_name for mv in ar.metric_values}
     assert "m.len" in names
     assert "m.min" in names
 
