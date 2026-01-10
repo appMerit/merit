@@ -20,7 +20,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, ParamSpec, TYPE_CHECKING
 from pydantic import validate_call
 
-from merit.context import RESOLVER_CONTEXT, TEST_CONTEXT, METRIC_VALUES_COLLECTOR, assertions_collector, METRIC_RESULTS_COLLECTOR, return_expression_collector, RETURN_EXPRESSION_COLLECTOR
+from merit.context import RESOLVER_CONTEXT, TEST_CONTEXT, METRIC_VALUES_COLLECTOR, assertions_collector, METRIC_RESULTS_COLLECTOR
 from merit.testing.resources import Scope, resource
 
 if TYPE_CHECKING:
@@ -49,7 +49,16 @@ class MetricValue:
     """
 
     metric_full_name: str
-    metric_value: int | float | bool | list[int | float | bool] | tuple[float, float] | tuple[float, float, float]
+    metric_value: (
+        int
+        | float
+        | bool
+        | tuple[int | float | bool, ...]
+        | tuple[tuple[int | float | bool, int], ...]
+        | tuple[tuple[int | float | bool, float], ...]
+        | tuple[float, float]
+        | tuple[float, float, float]
+    )
 
 
 @dataclass
@@ -176,6 +185,16 @@ class Metric:
         """Helper to record metric property access in assertion context."""
         collector = METRIC_VALUES_COLLECTOR.get()
         if collector is not None:
+            match value:
+                case list() as v:
+                    value = tuple(v)
+
+                case Counter() as v:
+                    value = tuple(sorted(v.items(), key=lambda kv: kv[0]))
+
+                case dict() as v:
+                    value = tuple(sorted(v.items(), key=lambda kv: kv[0]))
+
             full_name = f"{self.name or 'unnamed_metric'}.{prop_name}"
             mv = MetricValue(metric_full_name=full_name, metric_value=value)
             collector.append(mv)
@@ -479,7 +498,11 @@ class MetricResult:
     metadata: MetricMetadata
     assertion_results: list[AssertionResult]
     value: int | float | bool | list[int | float | bool] | tuple[float, float] | tuple[float, float, float]
-    expression_repr: str | None = None
+
+    def __post_init__(self) -> None:
+        collector = METRIC_RESULTS_COLLECTOR.get()
+        if collector is not None:
+            collector.append(self)
 
 
 def metric(
@@ -532,11 +555,14 @@ def metric(
         @functools.wraps(fn)
         def wrapped_gen(*args: Any, **kwargs: Any) -> Generator[Metric, Any, Any]:
             assertions_results = []
-            return_expression = "placeholder"
-            with assertions_collector(assertions_results), return_expression_collector(return_expression):
+
+            with assertions_collector(assertions_results):
                 gen = fn(*args, **kwargs)
                 metric_instance: Metric = next(gen)
-                yield metric_instance
+
+            yield metric_instance
+
+            with assertions_collector(assertions_results):
                 try:
                     next(gen)
                 except StopIteration as e:
@@ -544,17 +570,13 @@ def metric(
                         value = math.nan
                     else:
                         value = e.value
-                    parsed_expression = return_expression if return_expression != "placeholder" else None
-                    result = MetricResult(
+                    MetricResult(
                         name=name,
                         metadata=replace(metric_instance.metadata), # use replace to create a copy
                         assertion_results=assertions_results,
                         value=value,
-                        expression_repr=parsed_expression,
                     )
-                    collector = METRIC_RESULTS_COLLECTOR.get()
-                    if collector is not None:
-                        collector.append(result)
+
 
         return resource(
             wrapped_gen,
@@ -567,11 +589,14 @@ def metric(
         @functools.wraps(fn)
         async def wrapped_async_gen(*args: Any, **kwargs: Any):
             assertions_results = []
-            return_expression = "placeholder"
-            with assertions_collector(assertions_results), return_expression_collector(return_expression):
+            
+            with assertions_collector(assertions_results):
                 gen = fn(*args, **kwargs)
                 metric_instance: Metric = await gen.__anext__()
-                yield metric_instance
+
+            yield metric_instance
+
+            with assertions_collector(assertions_results):
                 try:
                     await gen.__anext__()
                 except StopIteration as e:
@@ -579,17 +604,13 @@ def metric(
                         value = math.nan
                     else:
                         value = e.value
-                    parsed_expression = return_expression if return_expression != "placeholder" else None
-                    result = MetricResult(
+                    MetricResult(
                         name=name,
                         metadata=replace(metric_instance.metadata), # use replace to create a copy
                         assertion_results=assertions_results,
                         value=value,
-                        expression_repr=parsed_expression,
                     )
-                    collector = METRIC_RESULTS_COLLECTOR.get()
-                    if collector is not None:
-                        collector.append(result)
+
 
         return resource(
             wrapped_async_gen,

@@ -49,7 +49,6 @@ ASSERTION_RESULTS_COLLECTOR: ContextVar[List[AssertionResult] | None] = ContextV
 PREDICATE_RESULTS_COLLECTOR: ContextVar[List[PredicateResult] | None] = ContextVar("predicate_results_collector", default=None)
 METRIC_VALUES_COLLECTOR: ContextVar[List[MetricValue] | None] = ContextVar("metric_values_collector", default=None)
 METRIC_RESULTS_COLLECTOR: ContextVar[List[MetricResult] | None] = ContextVar("metric_results_collector", default=None)
-RETURN_EXPRESSION_COLLECTOR: ContextVar[str | None] = ContextVar("return_expression_collector", default=None)
 
 TEST_CONTEXT: ContextVar[TestContext | None] = ContextVar("test_context", default=None)
 RESOLVER_CONTEXT: ContextVar[ResolverContext | None] = ContextVar("resolver_context", default=None)
@@ -101,15 +100,6 @@ def metric_results_collector(ctx: List[MetricResult]) -> Iterator[None]:
         yield
     finally:
         METRIC_RESULTS_COLLECTOR.reset(token)
-
-
-@contextmanager
-def return_expression_collector(ctx: str) -> Iterator[None]:
-    token = RETURN_EXPRESSION_COLLECTOR.set(ctx)
-    try:
-        yield
-    finally:
-        RETURN_EXPRESSION_COLLECTOR.reset(token)
 
 
 @contextmanager
