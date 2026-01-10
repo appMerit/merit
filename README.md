@@ -217,14 +217,6 @@ AI predicates use the Merit cloud service. [Contact us](mailto:daniel@appmerit.c
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-Merit is open source! We provide this SDK and CLI freely under the MIT License.
+Merit is open source! We provide this SDK and CLI freely under the MIT License. 
 
-For premium cloud features and enterprise support, visit [appmerit.com](https://appmerit.com)
-
----
-
-## Support
-
-- **Documentation**: [docs.appmerit.com](https://docs.appmerit.com)
-- **GitHub**: [github.com/appMerit/merit](https://github.com/appMerit/merit)
-- **Email**: [daniel@appmerit.com](mailto:daniel@appmerit.com)
+For premium cloud features and enterprise support, visit: https://appmerit.com

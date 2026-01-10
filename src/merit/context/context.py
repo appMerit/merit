@@ -7,43 +7,28 @@ from typing import Iterator, TYPE_CHECKING, List
 
 if TYPE_CHECKING:
     from merit.assertions.base import AssertionResult
-    from merit.metrics.base import Metric
+    from merit.metrics.base import Metric, MetricValue
+    from merit.predicates.base import PredicateResult
+    from merit.testing.discovery import TestItem
+    from merit.testing.runner import MeritRun
 
 
 @dataclass(frozen=True, slots=True)
 class TestContext:
     """Execution context for a single discovered test item.
 
-    This object holds metadata about the currently executing test item (read-only
-    identifying information) and aggregates results produced while executing that
-    item (e.g., assertion results).
+    This object holds a reference to the currently executing test item and
+    aggregates results produced while executing that item (e.g., assertion results).
 
     Attributes
     ----------
-    test_item_name : str | None
-        Display name for the test item (e.g., function/case name).
-    test_item_group_name : str | None
-        Optional grouping label (e.g., suite/class/collection name).
-    test_item_module_path : str | None
-        Import/module path or file path used to locate the test item.
-    test_item_tags : list[str]
-        Tags attached to the test item (used for filtering and reporting).
-    test_item_params : list[str]
-        Parameter values/labels for parametrized test items.
-    test_item_id_suffix : str | None
-        Optional extra suffix appended to an item id to ensure uniqueness.
+    item : TestItem
+        The test item being executed.
     assertion_results : list[AssertionResult]
         Assertion results produced while executing the test item.
     """
-    # read
-    test_item_name: str | None = None
-    test_item_group_name: str | None = None
-    test_item_module_path: str | None = None
-    test_item_tags: list[str] = field(default_factory=list)
-    test_item_params: list[str] = field(default_factory=list)
-    test_item_id_suffix: str | None = None
 
-    # write
+    item: TestItem
     assertion_results: list[AssertionResult] = field(default_factory=list)
 
 
@@ -59,11 +44,51 @@ class ResolverContext:
 
     consumer_name: str | None = None
 
+ASSERTION_RESULTS_COLLECTOR: ContextVar[List[AssertionResult] | None] = ContextVar("assertion_results_collector", default=None)
+PREDICATE_RESULTS_COLLECTOR: ContextVar[List[PredicateResult] | None] = ContextVar("predicate_results_collector", default=None)
+METRIC_VALUES_COLLECTOR: ContextVar[List[MetricValue] | None] = ContextVar("metric_values_collector", default=None)
 
 TEST_CONTEXT: ContextVar[TestContext | None] = ContextVar("test_context", default=None)
 RESOLVER_CONTEXT: ContextVar[ResolverContext | None] = ContextVar("resolver_context", default=None)
-ASSERTION_CONTEXT: ContextVar[AssertionResult | None] = ContextVar("assertion_context", default=None)
 METRIC_CONTEXT: ContextVar[List[Metric] | None] = ContextVar("metric_context", default=None)
+MERIT_RUN_CONTEXT: ContextVar[MeritRun | None] = ContextVar("merit_run_context", default=None)
+
+
+def get_test_context() -> TestContext | None:
+    """Get the current test context, or None if not in a test."""
+    return TEST_CONTEXT.get()
+
+
+def get_merit_run() -> MeritRun | None:
+    """Get the current merit run, or None if not in a run."""
+    return MERIT_RUN_CONTEXT.get()
+
+
+@contextmanager
+def assertions_collector(ctx: List[AssertionResult]) -> Iterator[None]:
+    token = ASSERTION_RESULTS_COLLECTOR.set(ctx)
+    try:
+        yield
+    finally:
+        ASSERTION_RESULTS_COLLECTOR.reset(token)
+
+
+@contextmanager
+def predicate_results_collector(ctx: List[PredicateResult]) -> Iterator[None]:
+    token = PREDICATE_RESULTS_COLLECTOR.set(ctx)
+    try:
+        yield
+    finally:
+  
+        PREDICATE_RESULTS_COLLECTOR.reset(token)
+
+@contextmanager
+def metric_values_collector(ctx: List[MetricValue]) -> Iterator[None]:
+    token = METRIC_VALUES_COLLECTOR.set(ctx)
+    try:
+        yield
+    finally:
+        METRIC_VALUES_COLLECTOR.reset(token)
 
 
 @contextmanager
@@ -99,22 +124,6 @@ def resolver_context_scope(ctx: ResolverContext) -> Iterator[None]:
 
 
 @contextmanager
-def assertion_context_scope(ctx: AssertionResult) -> Iterator[None]:
-    """Temporarily set `ASSERTION_CONTEXT` for the duration of the ``with`` block.
-
-    Parameters
-    ----------
-    ctx : AssertionResult
-        The assertion result object to bind as the current assertion context.
-    """
-    token = ASSERTION_CONTEXT.set(ctx)
-    try:
-        yield
-    finally:
-        ASSERTION_CONTEXT.reset(token)
-
-
-@contextmanager
 def metrics(ctx: List[Metric]) -> Iterator[None]:
     """Attach metrics to the current execution scope via `METRIC_CONTEXT`.
 
@@ -128,3 +137,19 @@ def metrics(ctx: List[Metric]) -> Iterator[None]:
         yield
     finally:
         METRIC_CONTEXT.reset(token)
+
+
+@contextmanager
+def merit_run_scope(run: MeritRun) -> Iterator[None]:
+    """Temporarily set `MERIT_RUN_CONTEXT` for the duration of the ``with`` block.
+
+    Parameters
+    ----------
+    run : MeritRun
+        The merit run to bind as the current run context.
+    """
+    token = MERIT_RUN_CONTEXT.set(run)
+    try:
+        yield
+    finally:
+        MERIT_RUN_CONTEXT.reset(token)

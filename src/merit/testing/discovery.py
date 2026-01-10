@@ -38,11 +38,13 @@ class MeritFunctionTransformer(ast.NodeTransformer):
     def visit_FunctionDef(self, node: ast.FunctionDef):
         if node.name.startswith("merit_"):
             node = self.apply_transformers(node)
+            return node
         return self.generic_visit(node)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
         if node.name.startswith("merit_"):
             node = self.apply_transformers(node)
+            return node
         return self.generic_visit(node)
 
 
@@ -109,6 +111,7 @@ class TestItem:
     skip_reason: str | None = None
     xfail_reason: str | None = None
     xfail_strict: bool = False
+    fail_fast: bool = False
     repeat_count: int = 1
     repeat_min_passes: int | None = None
 

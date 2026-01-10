@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Metric abstractions for the Merit analyzer.
+Metric abstractions for Merit.
 
 This module provides the core classes and decorators for recording,
 computing, and managing metrics during test execution.
@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, ParamSpec
 from pydantic import validate_call
 
-from merit.context import RESOLVER_CONTEXT, TEST_CONTEXT, ASSERTION_CONTEXT
+from merit.context import RESOLVER_CONTEXT, TEST_CONTEXT, METRIC_VALUES_COLLECTOR
 from merit.testing.resources import Scope, resource
 
 
@@ -112,8 +112,8 @@ class MetricState:
         99% confidence interval (lower, upper).
     percentiles : list of float, optional
         List of 99 quantiles (p1 to p99) computed with n=100.
-    counter : dict, optional
-        Frequency count of each unique raw value.
+    counter : Counter, optional
+        Frequency count of each unique raw value. Missing keys return 0.
     distribution : dict, optional
         Share of each unique raw value.
     final_value : int, float, bool, or list, optional
@@ -136,7 +136,7 @@ class MetricState:
     ci_95: tuple[float, float] | None = None
     ci_99: tuple[float, float] | None = None
     percentiles: list[float] | None = None
-    counter: dict[int | float | bool, int] | None = None
+    counter: Counter[int | float | bool] | None = None
     distribution: dict[int | float | bool, float] | None = None
     
     # final value of the metric
@@ -169,10 +169,11 @@ class Metric:
 
     def _push_value_to_context(self, prop_name: str, value: Any) -> None:
         """Helper to record metric property access in assertion context."""
-        if as_ctx := ASSERTION_CONTEXT.get():
+        collector = METRIC_VALUES_COLLECTOR.get()
+        if collector is not None:
             full_name = f"{self.name or 'unnamed_metric'}.{prop_name}"
             mv = MetricValue(metric_full_name=full_name, metric_value=value)
-            as_ctx.metric_values.add(mv)
+            collector.append(mv)
 
     @validate_call
     def add_record(self, value: int | float | bool | list[int] | list[float] | list[bool]) -> None:
@@ -185,11 +186,12 @@ class Metric:
             The value(s) to add to the metric.
         """
         with self._values_lock:
-            if test_ctx := TEST_CONTEXT.get():
-                if test_ctx.test_item_name:
-                    self.metadata.collected_from_merits.add(test_ctx.test_item_name)
-                if test_ctx.test_item_id_suffix:
-                    self.metadata.collected_from_cases.add(test_ctx.test_item_id_suffix)
+            test_ctx = TEST_CONTEXT.get()
+            if test_ctx is not None:
+                if test_ctx.item.name:
+                    self.metadata.collected_from_merits.add(test_ctx.item.name)
+                if test_ctx.item.id_suffix:
+                    self.metadata.collected_from_cases.add(test_ctx.item.id_suffix)
 
             if self.metadata.first_item_recorded_at is None:
                 self.metadata.first_item_recorded_at = datetime.now(UTC)
@@ -310,7 +312,11 @@ class Metric:
     def pvariance(self) -> float:
         with self._values_lock:
             if self._cache.pvariance is None:
-                self._cache.pvariance = statistics.pvariance(self._float_values, mu=self.mean)
+                if self.len == 0:
+                    warnings.warn(f"Cannot compute pvariance for {self.name or 'unnamed metric'} - not enough values. Returning NaN.", stacklevel=2)
+                    self._cache.pvariance = math.nan
+                else:
+                    self._cache.pvariance = statistics.pvariance(self._float_values, mu=self.mean)
             value = self._cache.pvariance
             self._push_value_to_context("pvariance", value)
             return value
@@ -319,7 +325,11 @@ class Metric:
     def pstd(self) -> float:
         with self._values_lock:
             if self._cache.pstd is None:
-                self._cache.pstd = statistics.pstdev(self._float_values, mu=self.mean)
+                if self.len == 0:
+                    warnings.warn(f"Cannot compute pstd for {self.name or 'unnamed metric'} - not enough values. Returning NaN.", stacklevel=2)
+                    self._cache.pstd = math.nan
+                else:
+                    self._cache.pstd = statistics.pstdev(self._float_values, mu=self.mean)
             value = self._cache.pstd
             self._push_value_to_context("pstd", value)
             return value
@@ -328,8 +338,12 @@ class Metric:
     def ci_90(self) -> tuple[float, float]:
         with self._values_lock:
             if self._cache.ci_90 is None:
-                half = 1.645 * self.std / math.sqrt(self.len)
-                self._cache.ci_90 = (self.mean - half, self.mean + half)
+                if self.len == 0:
+                    warnings.warn(f"Cannot compute ci_90 for {self.name or 'unnamed metric'} - not enough values. Returning NaN.", stacklevel=2)
+                    self._cache.ci_90 = (math.nan, math.nan)
+                else:
+                    half = 1.645 * self.std / math.sqrt(self.len)
+                    self._cache.ci_90 = (self.mean - half, self.mean + half)
             value = self._cache.ci_90
             self._push_value_to_context("ci_90", value)
             return value
@@ -338,8 +352,12 @@ class Metric:
     def ci_95(self) -> tuple[float, float]:
         with self._values_lock:
             if self._cache.ci_95 is None:
-                half = 1.96 * self.std / math.sqrt(self.len)
-                self._cache.ci_95 = (self.mean - half, self.mean + half)
+                if self.len == 0:
+                    warnings.warn(f"Cannot compute ci_95 for {self.name or 'unnamed metric'} - not enough values. Returning NaN.", stacklevel=2)
+                    self._cache.ci_95 = (math.nan, math.nan)
+                else:
+                    half = 1.96 * self.std / math.sqrt(self.len)
+                    self._cache.ci_95 = (self.mean - half, self.mean + half)
             value = self._cache.ci_95
             self._push_value_to_context("ci_95", value)
             return value
@@ -348,8 +366,12 @@ class Metric:
     def ci_99(self) -> tuple[float, float]:
         with self._values_lock:
             if self._cache.ci_99 is None:
-                half = 2.576 * self.std / math.sqrt(self.len)
-                self._cache.ci_99 = (self.mean - half, self.mean + half)
+                if self.len == 0:
+                    warnings.warn(f"Cannot compute ci_99 for {self.name or 'unnamed metric'} - not enough values. Returning NaN.", stacklevel=2)
+                    self._cache.ci_99 = (math.nan, math.nan)
+                else:
+                    half = 2.576 * self.std / math.sqrt(self.len)
+                    self._cache.ci_99 = (self.mean - half, self.mean + half)
             value = self._cache.ci_99
             self._push_value_to_context("ci_99", value)
             return value
@@ -409,12 +431,10 @@ class Metric:
             return value
 
     @property
-    def counter(self) -> dict[int | float | bool, int]: #TODO: for unknown keys return 0
+    def counter(self) -> Counter[int | float | bool]:
         with self._values_lock:
             if self._cache.counter is None:
-                self._cache.counter = dict[int | float | bool, int](
-                    Counter(self._raw_values)
-                )
+                self._cache.counter = Counter(self._raw_values)
             value = self._cache.counter
             self._push_value_to_context("counter", value)
             return value
@@ -485,7 +505,8 @@ def metric(
         return metric
 
     def on_injection_hook(metric: Metric) -> Metric:
-        if resolver_ctx := RESOLVER_CONTEXT.get():
+        resolver_ctx = RESOLVER_CONTEXT.get()
+        if resolver_ctx is not None:
             if resolver_ctx.consumer_name:
                 metric.metadata.collected_from_resources.add(resolver_ctx.consumer_name)
         return metric

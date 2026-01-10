@@ -5,6 +5,7 @@ import pytest
 
 from merit.context import TestContext, test_context_scope as context_scope_ctx
 from merit.context import metrics as metrics_scope_ctx
+from merit.context import assertions_collector
 from merit.testing.discovery import collect
 from merit.metrics.base import Metric
 
@@ -30,8 +31,8 @@ def merit_sample():
 
     try:
         [item] = collect(mod_path)
-        ctx = TestContext(test_item_name="merit_sample")
-        with context_scope_ctx(ctx):
+        ctx = TestContext(item=item)
+        with context_scope_ctx(ctx), assertions_collector(ctx.assertion_results):
             item.fn()
 
         assert len(ctx.assertion_results) == 1
@@ -66,10 +67,9 @@ def merit_fail():
 
     try:
         [item] = collect(mod_path)
-        ctx = TestContext(test_item_name="merit_fail")
-        with context_scope_ctx(ctx):
-            with pytest.raises(AssertionError, match="nope"):
-                item.fn()
+        ctx = TestContext(item=item)
+        with context_scope_ctx(ctx), assertions_collector(ctx.assertion_results):
+            item.fn()
 
         assert len(ctx.assertion_results) == 1
         ar = ctx.assertion_results[0]
@@ -99,11 +99,10 @@ def merit_metric_capture_multi():
 
     try:
         [item] = collect(mod_path)
-        ctx = TestContext(test_item_name="merit_metric_capture_multi")
+        ctx = TestContext(item=item)
         m = Metric(name="assert_outcomes")
-        with context_scope_ctx(ctx), metrics_scope_ctx([m]):
-            with pytest.raises(AssertionError, match="nope"):
-                item.fn()
+        with context_scope_ctx(ctx), metrics_scope_ctx([m]), assertions_collector(ctx.assertion_results):
+            item.fn()
 
         assert m.raw_values == [True, False]
         assert m.metadata.collected_from_merits == {"merit_metric_capture_multi"}
