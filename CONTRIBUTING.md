@@ -193,8 +193,10 @@ def test_resource_provides_dependency():
     def client(config):
         return {"url": config["url"], "connected": True}
     
-    # Test implementation
-    assert client["connected"] is True
+    # Create a test function that receives the resource
+    def merit_test_client(client):
+        assert client["connected"] is True
+        assert client["url"] == "https://api.example.com"
 ```
 
 ---
