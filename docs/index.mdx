@@ -1,3 +1,45 @@
 ---
 title: "Welcome to Merit"
+description: "Merit is a Python testing framework for AI projects. It follows pytest syntax and culture while introducing components essential for testing AI software: metrics, datasets, and traces."
 ---
+
+### Why Merit exists
+
+There are two major approaches to testing AI agents and workflows. 
+
+One is to treat them as AI models and measure quality using metrics and datasets. 
+
+The other is to treat them as software and write automated tests case-by-case.
+
+Merit was built for developers who want **both worlds in one framework**.
+
+### Why developers choose Merit
+
+<Columns cols={2}>
+  <Card title="Merit vs evals" href="/docs/get-started/merit-vs-evals">
+    - native Python syntax instead of custom DSL
+    - small granular predicates instead of bloated evaluators
+    - cases, assertions, metrics are defined in code, not abstracted away
+    - fully composable, no need for going all-in from the beginning
+  </Card>
+  <Card title="Merit vs pytest" href="/docs/concepts/merit">
+    - access OTEL traces for assertions within the test
+    - collect failed assertions into metrics
+    - use semantic predicates to assert natural language
+    - aggregate results for thousands of iterated cases
+  </Card>
+</Columns>
+
+### Get started
+
+<CardGroup cols={3}>
+  <Card title="Quick Start" icon="rocket" href="/docs/get-started/quick-start">
+    Write your first merit in 5 minutes
+  </Card>
+  <Card title="Merit Functions" icon="code" href="/docs/concepts/merit">
+    Discovery, parametrization, and dependency injection
+  </Card>
+  <Card title="Semantic Predicates" icon="brain" href="/docs/concepts/semantic-predicates">
+    LLM-powered assertions for natural language
+  </Card>
+</CardGroup>
