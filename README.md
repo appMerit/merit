@@ -1,73 +1,99 @@
-<div align="center">
-
 # Merit
-
-**Testing framework for AI systems**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-[Documentation](https://docs.appmerit.com) | [GitHub](https://github.com/appMerit/merit)
-
-</div>
-
----
-
-**Merit** is a modern testing framework built specifically for LLMs and AI agents. Stop guessing. Start testing your AI with semantic assertions that understand what your AI actually says.
-
-The key features are:
-
-* **Semantic assertions**: LLM-as-a-Judge checks facts, not strings. Detects hallucinations, missing info, and contradictions automatically.
-* **Familiar syntax**: Pytest-like interface. If you know pytest, you know Merit. Resources, parametrization, async support.
-* **Production-ready**: Built for scale. Concurrent testing, tracing, CI/CD integration.
+Merit is a Python testing framework for AI projects. It follows pytest syntax and culture while introducing components essential for testing AI software: metrics, typed datasets, semantic predicates (LLM-as-a-Judge), and OTEL traces.
 
 ---
 
 ## Installation
 
 ```bash
-pip install git+https://github.com/appMerit/merit.git
+uv add appmerit
 ```
-
-**Requirements**: Python 3.12+
 
 ---
 
+# Merit 101
+
+Follow pytest habits...
+
+- Create 'merit_*.py' files
+- Write 'def merit_*' functions
+- Use 'merit.resource' instead of 'pytest.fixture'
+- Add 'assert' expressions within the functions
+- Run 'uv run merit test'
+
+...while leveraging Merit APIs.
+- Use 'with metrics()' context to turn failed assertions into quality metrics
+- Use 'has_facts()' and other semantic predicates for asserting natural language
+- Access OTEL span data and assert it with 'follows_policy()' predicate
+- Parse datasets into clearly typed and validated data objects
+
+---
+
+
 ## Example
-
-### Create it
-
-Create a file `test_chatbot.py`:
 
 ```python
 import merit
-from merit.predicates import has_facts, has_unsupported_facts
+from merit import Case, Metric, metrics
+from merit.predicates import has_unsupported_facts, follows_policy
 
-def chatbot(prompt: str) -> str:
-    """Your AI system."""
-    return "Paris is the capital of France and home to the Eiffel Tower."
+from pydantic import BaseModel
 
-async def merit_chatbot_accuracy():
-    """Test chatbot with semantic assertions."""
-    response = chatbot("What is the capital of France?")
+@merit.sut
+def store_chatbot(prompt: str) -> str:
+    return call_llm(prompt)
+
+@merit.metric
+def accuracy():
+    metric = Metric()
+    yield metric
+
+    assert metric.mean > 0.8
+    yield metric.mean
+
+class Refs(BaseModel):
+    kb: str
+    expected_tool: str | None = None
+
+cases = [
+    Case(sut_input_values={"prompt": "When are you open?"}, references=Refs(kb="Store hours: 9 AM - 6 PM, Monday-Saturday. Closed Sundays.")),
+    Case(sut_input_values={"prompt": "Return policy?"}, references=Refs(kb="30-day returns with receipt.")),
+    Case(sut_input_values={"prompt": "How much for the Nike Air Max?"}, references=Refs(kb="Nike Air Max: $129.99", expected_tool="offer_product")),
+]
+
+@merit.iter_cases(cases)
+@merit.repeat(3)
+async def merit_chatbot_no_hallucinations(
+    case: Case[Refs], 
+    store_chatbot, 
+    accuracy: Metric, 
+    trace_context):
+    """AI agent relies on knowledge base and tool calls for transactional questions"""
+    response = store_chatbot(**case.sut_input_values)
     
-    # ✓ Semantic fact checking (not string matching)
-    assert await has_facts(response, "Paris is the capital of France")
+    # Verify the answer don't have any unsupported facts
+    with metrics([accuracy]):
+        assert not await has_unsupported_facts(response, case.references.kb)
     
-    # ✓ Hallucination detection
-    assert not await has_unsupported_facts(
-        response, 
-        "Paris is the capital of France. The Eiffel Tower is in Paris."
-    )
+    # Verify tool was called when expected
+    if expected_tool := case.references.expected_tool:
+        spans = trace_context.get_sut_spans(store_chatbot)
+        tool_called = spans[1].attributes.get("llm.request.functions.0.name")
+
+        assert tool_called == expected_tool
 ```
 
-### Run it
+Run it:
 
 ```bash
-merit
+merit test
 ```
 
-**Output:**
+Output:
 
 ```
 Merit Test Runner
@@ -75,141 +101,70 @@ Merit Test Runner
 
 Collected 1 test
 
-test_chatbot.py::merit_chatbot_accuracy ✓
+test_example.py::merit_chatbot_responds ✓
 
-==================== 1 passed in 0.45s ====================
+==================== 1 passed in 0.08s ====================
 ```
-
-That's it! Merit handles the complexity of semantic evaluation for you.
-
----
-
-## What You Can Test
-
-Merit's LLM-as-a-Judge assertions understand **meaning**, not just text:
-
-* **`has_facts`** - Catches incomplete responses that skip critical details
-* **`has_unsupported_facts`** - Detects when your LLM invents information (hallucinations)
-* **`has_conflicting_facts`** - Finds contradictions with your source material
-* **`has_topics`** - Ensures all required subjects are covered
-* **`follows_policy`** - Validates compliance with brand guidelines
-* **`matches_writing_style`** - Checks tone, voice, and writing patterns
-* **`has_structure`** - Validates format and organization
-* **`is_valid_json`** - Checks JSON structure and schema
-
-[See all predicates →](https://docs.appmerit.com/predicates/overview)
-
----
-
-## Parametrization
-
-Test multiple cases easily:
-
-```python
-import merit
-
-def chatbot(prompt: str) -> str:
-    return f"Hello, {prompt}!"
-
-@merit.parametrize(
-    "name,expected",
-    [
-        ("World", "Hello, World!"),
-        ("Alice", "Hello, Alice!"),
-        ("Bob", "Hello, Bob!"),
-    ],
-)
-def merit_chatbot_greetings(name: str, expected: str):
-    """Test multiple greetings."""
-    response = chatbot(name)
-    assert response == expected
-```
-
-**Output:**
-
-```
-test_chatbot.py::merit_chatbot_greetings[World] ✓
-test_chatbot.py::merit_chatbot_greetings[Alice] ✓
-test_chatbot.py::merit_chatbot_greetings[Bob] ✓
-
-==================== 3 passed in 0.12s ====================
-```
-
----
-
-## Resources (Fixtures)
-
-Merit supports pytest-like resources for setup and teardown:
-
-```python
-import merit
-
-@merit.resource
-def api_client():
-    """Setup resource."""
-    client = {"connected": True}
-    yield client
-    client["connected"] = False  # Teardown
-
-@merit.resource(scope="suite")
-def expensive_model():
-    """Suite-scoped resource - shared across all tests."""
-    return "loaded-model-v1"
-
-def merit_client_works(api_client):
-    """Test using resource."""
-    assert api_client["connected"] is True
-
-async def merit_async_test(api_client):
-    """Async tests work too."""
-    assert api_client["connected"] is True
-```
-
----
-
-## Configuration
-
-For AI predicates, set up your Merit API credentials:
-
-```bash
-# .env file
-MERIT_API_BASE_URL=https://api.appmerit.com
-MERIT_API_KEY=your_api_key_here
-```
-
-AI predicates use the Merit cloud service. [Contact us](mailto:daniel@appmerit.com) to get access.
-
-**Alternative**: You can also use local LLM providers (OpenAI, Anthropic, AWS Bedrock, etc.). See [Configuration docs](https://docs.appmerit.com/configuration) for details.
-
----
 
 ## Documentation
 
+Full documentation: **[docs.appmerit.com](https://docs.appmerit.com)**
+
 **Getting Started:**
-- [Quick Start](https://docs.appmerit.com/quickstart) - Get up and running in 2 minutes
-- [Your First Test](https://docs.appmerit.com/first-test) - Write and run your first test
-- [Writing Tests](https://docs.appmerit.com/core/writing-tests) - Learn about resources and test structure
+- [Quick Start](https://docs.appmerit.com/get-started/quick-start) - Get up and running in 5 minutes
 
-**Core Features:**
-- [AI Predicates](https://docs.appmerit.com/predicates/overview) - LLM-as-a-Judge assertions
-- [Test Cases](https://docs.appmerit.com/core/test-cases) - Organize tests with Case objects
-- [Resources](https://docs.appmerit.com/core/resources) - Setup and teardown (fixtures)
-- [Running Tests](https://docs.appmerit.com/core/running-tests) - CLI options and test discovery
+**Usage:**
+- [Writing Merits](https://docs.appmerit.com/usage/writing-merits) - How to define a proper merit suite
+- [Running Merits](https://docs.appmerit.com/usage/running-merits) - How to execute suits and merits
 
-**Advanced:**
-- [Parametrization](https://docs.appmerit.com/advanced/parametrize) - Test multiple inputs
-- [Tags & Filters](https://docs.appmerit.com/advanced/tags-filters) - Organize and filter tests
-- [Tracing](https://docs.appmerit.com/advanced/tracing) - Distributed tracing integration
+**Concepts:**
+- [Merit](https://docs.appmerit.com/concepts/merit) - Like test but better
+- [Resource](https://docs.appmerit.com/concepts/resource) - Like fixtures but better
+- [Case](https://docs.appmerit.com/concepts/case) - Container for parsed dataset entities
+- [Metric](https://docs.appmerit.com/concepts/metric) - Aggregating assertions
+- [Semantic Predicates](https://docs.appmerit.com/concepts/semantic-predicates) - Asserting language and logs
+- [SUT (System Under Test)](https://docs.appmerit.com/concepts/sut) - Collecting and accesing traces
+
+**API Reference:**
+- [Merit Definitions APIs](https://docs.appmerit.com/apis/testing) - Tune discovery and execution
+- [Merit Predicates APIs](https://docs.appmerit.com/apis/predicates) - Build your own semantic predicates
+- [Merit Metric APIs](https://docs.appmerit.com/apis/metrics) - Build complex metric systems 
+- [Merit Tracing APIs](https://docs.appmerit.com/apis/tracing) - OpenTelemetry integration
 
 ---
 
-## Who Uses Merit?
+## Contributing
 
-- **Chatbot Developers** - Test response accuracy, detect hallucinations, ensure brand voice
-- **Document AI** - Verify summaries, check extractions, validate transformations at scale
-- **AI Agent Teams** - Test complex workflows, validate tool usage, ensure reliable behavior
-- **RAG Systems** - Validate groundedness, catch hallucinations, test retrieval quality
-- **Content Generation** - Check facts, verify style, ensure quality across 1000s of outputs
+We welcome contributions! To get started:
+
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/merit.git`
+3. Create a branch: `git checkout -b your-feature-name`
+4. Install dependencies: `uv sync`
+5. Make your changes
+6. Run tests: `uv run merit test`
+7. Run lints: `uv run ruff check .`
+8. Submit a pull request
+
+For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+**Development Setup:**
+
+```bash
+# Clone the repository
+git clone https://github.com/appMerit/merit.git
+cd merit
+
+# Install dependencies
+uv sync
+
+# Run tests
+uv run merit test
+
+# Run lints
+uv run ruff check .
+uv run mypy .
+```
 
 ---
 
@@ -217,6 +172,10 @@ AI predicates use the Merit cloud service. [Contact us](mailto:daniel@appmerit.c
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-Merit is open source! We provide this SDK and CLI freely under the MIT License. 
+---
 
-For premium cloud features and enterprise support, visit: https://appmerit.com
+## Support
+
+- **Documentation**: [docs.appmerit.com](https://docs.appmerit.com)
+- **GitHub Issues**: [github.com/appMerit/merit/issues](https://github.com/appMerit/merit/issues)
+- **Email**: support@appmerit.com
