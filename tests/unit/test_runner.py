@@ -501,3 +501,109 @@ class TestResourceTeardown:
 
         assert create_count == 1
         assert captured == ["suite_1", "suite_1"]
+
+
+class TestResourceResolutionErrors:
+    """Tests to ensure resource resolution errors are properly surfaced through the runner."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_resource_param_causes_error(self):
+        """Test that an unknown resource parameter results in an error."""
+
+        def test_with_unknown(unknown_resource):
+            pass
+
+        item = make_item(test_with_unknown, params=["unknown_resource"])
+        runner = Runner(reporters=[])
+        result = await runner.run(items=[item])
+
+        assert result.result.errors == 1
+        error = result.result.executions[0].result.error
+        assert error is not None
+        assert "Unknown resource" in str(error) or "unknown_resource" in str(error)
+
+    @pytest.mark.asyncio
+    async def test_resource_teardown_error_does_not_mask_test_error(self):
+        """Test that resource teardown errors are surfaced but don't mask test errors."""
+
+        @resource
+        def resource_with_teardown_error():
+            yield "value"
+            raise RuntimeError("Teardown failed")
+
+        def test_that_fails(resource_with_teardown_error):
+            assert False, "Test assertion failed"
+
+        item = make_item(test_that_fails, params=["resource_with_teardown_error"])
+        runner = Runner(reporters=[])
+        result = await runner.run(items=[item])
+
+        # Test should fail due to assertion, not error
+        assert result.result.failed == 1
+
+    @pytest.mark.asyncio
+    async def test_resource_resolution_error_in_sequential_mode(self):
+        """Test that resource resolution errors are surfaced in sequential execution mode."""
+
+        @resource
+        def sequential_resource():
+            raise RuntimeError("Sequential resource error")
+
+        def test_with_resource(sequential_resource):
+            pass
+
+        items = [
+            make_item(test_with_resource, name="test_1", params=["sequential_resource"]),
+            make_item(lambda: None, name="test_2"),
+        ]
+        runner = Runner(reporters=[], concurrency=1)
+        result = await runner.run(items=items)
+
+        assert result.result.errors == 1
+        assert result.result.executions[0].result.error is not None
+        assert "Sequential resource error" in str(result.result.executions[0].result.error)
+
+    @pytest.mark.asyncio
+    async def test_resource_resolution_error_in_concurrent_mode(self):
+        """Test that resource resolution errors are surfaced in concurrent execution mode."""
+
+        @resource
+        def concurrent_resource():
+            raise RuntimeError("Concurrent resource error")
+
+        def test_with_resource(concurrent_resource):
+            pass
+
+        items = [
+            make_item(test_with_resource, name="test_1", params=["concurrent_resource"]),
+            make_item(lambda: None, name="test_2"),
+        ]
+        runner = Runner(reporters=[], concurrency=2)
+        result = await runner.run(items=items)
+
+        assert result.result.errors == 1
+        # Find the errored execution
+        errored = [e for e in result.result.executions if e.result.status == TestStatus.ERROR]
+        assert len(errored) == 1
+        assert "Concurrent resource error" in str(errored[0].result.error)
+
+    @pytest.mark.asyncio
+    async def test_suite_scope_resource_error_affects_subsequent_tests(self):
+        """Test that errors in suite-scope resources affect all subsequent tests."""
+
+        @resource(scope="suite")
+        def suite_resource():
+            raise RuntimeError("Suite resource failed")
+
+        def test_with_suite(suite_resource):
+            pass
+
+        items = [
+            make_item(test_with_suite, name="test_1", params=["suite_resource"]),
+            make_item(test_with_suite, name="test_2", params=["suite_resource"]),
+        ]
+        runner = Runner(reporters=[])
+        result = await runner.run(items=items)
+
+        # Both tests should error due to suite resource failure
+        assert result.result.errors == 2

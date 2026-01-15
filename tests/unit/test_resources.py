@@ -581,3 +581,143 @@ class TestResourceHooks:
 
         # Hook called twice, once for each injection
         assert call_count == 2
+
+
+class TestResourceResolutionErrors:
+    """Tests to ensure resource resolution errors are properly surfaced."""
+
+    @pytest.mark.asyncio
+    async def test_resource_raises_during_resolution(self):
+        """Test that a resource that raises an error during resolution surfaces the error."""
+
+        @resource
+        def failing_resource():
+            raise RuntimeError("Resource failed to initialize")
+
+        resolver = ResourceResolver(get_registry())
+        with pytest.raises(RuntimeError, match="Resource failed to initialize"):
+            await resolver.resolve("failing_resource")
+
+    @pytest.mark.asyncio
+    async def test_async_resource_raises_during_resolution(self):
+        """Test that an async resource that raises during resolution surfaces the error."""
+
+        @resource
+        async def async_failing_resource():
+            raise ValueError("Async resource initialization failed")
+
+        resolver = ResourceResolver(get_registry())
+        with pytest.raises(ValueError, match="Async resource initialization failed"):
+            await resolver.resolve("async_failing_resource")
+
+    @pytest.mark.asyncio
+    async def test_resource_with_dependency_failure(self):
+        """Test that a resource depending on a failing resource surfaces the error."""
+
+        @resource
+        def base_resource():
+            raise RuntimeError("Base resource failed")
+
+        @resource
+        def dependent_resource(base_resource):
+            return f"dependent: {base_resource}"
+
+        resolver = ResourceResolver(get_registry())
+        with pytest.raises(RuntimeError, match="Base resource failed"):
+            await resolver.resolve("dependent_resource")
+
+    @pytest.mark.asyncio
+    async def test_resource_generator_raises_during_yield(self):
+        """Test that a generator resource that raises during yield surfaces the error."""
+
+        @resource
+        def gen_resource():
+            yield "before_error"
+            raise RuntimeError("Generator resource failed after first yield")
+
+        resolver = ResourceResolver(get_registry())
+        value = await resolver.resolve("gen_resource")
+        assert value == "before_error"
+
+        with pytest.raises(RuntimeError, match="Generator resource failed"):
+            await resolver.teardown()
+
+    @pytest.mark.asyncio
+    async def test_resource_on_injection_error(self):
+        """Test that errors in on_injection hook are surfaced."""
+
+        def raise_on_injection(value):
+            raise RuntimeError("on_injection hook failed")
+
+        @resource(on_injection=raise_on_injection)
+        def resource_with_injection():
+            return "value"
+
+        resolver = ResourceResolver(get_registry())
+        with pytest.raises(RuntimeError, match="on_injection hook failed"):
+            await resolver.resolve("resource_with_injection")
+
+    @pytest.mark.asyncio
+    async def test_resource_on_teardown_error_is_recorded(self):
+        """Test that generator teardown errors are recorded."""
+
+        @resource
+        def resource_with_teardown():
+            yield "value"
+            raise RuntimeError("Teardown error")
+
+        resolver = ResourceResolver(get_registry())
+        value = await resolver.resolve("resource_with_teardown")
+        assert value == "value"
+
+        with pytest.raises(RuntimeError, match="Teardown error"):
+            await resolver.teardown_scope(Scope.CASE)
+
+    @pytest.mark.asyncio
+    async def test_resource_on_teardown_hook_error(self):
+        """Test that errors in on_teardown hook are recorded for generator resources."""
+
+        teardown_hook_called = False
+
+        def raise_on_teardown(value):
+            nonlocal teardown_hook_called
+            teardown_hook_called = True
+            raise RuntimeError("on_teardown hook failed")
+
+        @resource(scope=Scope.CASE, on_teardown=raise_on_teardown)
+        def resource_with_teardown_hook():
+            yield "value"
+
+        resolver = ResourceResolver(get_registry())
+        value = await resolver.resolve("resource_with_teardown_hook")
+        assert value == "value"
+
+        # Hook is not called during resolve
+        assert not teardown_hook_called
+
+        # Hook is called during teardown and raises
+        with pytest.raises(RuntimeError, match="on_teardown hook failed"):
+            await resolver.teardown_scope(Scope.CASE)
+
+        # Verify hook was called
+        assert teardown_hook_called
+
+    @pytest.mark.asyncio
+    async def test_multiple_resources_one_fails(self):
+        """Test that when multiple resources are requested and one fails, the error is surfaced."""
+
+        @resource
+        def good_resource():
+            return "good"
+
+        @resource
+        def bad_resource():
+            raise RuntimeError("Bad resource")
+
+        resolver = ResourceResolver(get_registry())
+
+        good_value = await resolver.resolve("good_resource")
+        assert good_value == "good"
+
+        with pytest.raises(RuntimeError, match="Bad resource"):
+            await resolver.resolve("bad_resource")

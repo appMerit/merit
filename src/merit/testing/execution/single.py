@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -15,10 +16,14 @@ from merit.context import (
     test_context_scope,
 )
 from merit.resources import ResourceResolver
+from merit.resources.resolver import Scope
 from merit.testing.execution.interfaces import MeritTest
 from merit.testing.execution.result_builder import ResultBuilder
 from merit.testing.execution.tracer import TestTracer
 from merit.testing.models import MeritTestDefinition, TestResult, TestStatus
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,6 +49,9 @@ class SingleMeritTest(MeritTest):
                 error=AssertionError(self.definition.skip_reason),
             )
 
+        # fork resolver for case isolation
+        forked_resolver = resolver.fork_for_case()
+
         ctx = TestContext(item=self.definition)
         assertion_results: list[AssertionResult] = []
         error: Exception | None = None
@@ -53,10 +61,19 @@ class SingleMeritTest(MeritTest):
 
             with test_context_scope(ctx), assertions_collector(assertion_results):
                 try:
-                    kwargs = await self._resolve_params(resolver)
+                    kwargs = await self._resolve_params(forked_resolver)
                     await self._invoke(kwargs)
                 except Exception as e:  # noqa: BLE001
                     error = e
+                finally:
+                    # teardown case scope - must run even if test fails
+                    try:
+                        await forked_resolver.teardown_scope(Scope.CASE)
+                    except Exception as teardown_err:
+                        # teardown errors dont mask tests errors
+                        logger.warning(f"Error during resource teardown: {teardown_err}")
+                        if error is None:
+                            error = teardown_err
 
             duration_ms = (time.perf_counter() - start) * 1000
             result = self.result_builder.build(
