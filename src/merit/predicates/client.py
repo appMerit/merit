@@ -81,7 +81,9 @@ class PredicateAPISettings(BaseSettings):
         Whether 5xx responses should be retried.
     """
 
-    base_url: HttpUrl = Field(validation_alias="MERIT_API_BASE_URL", default=HttpUrl("https://api.appmerit.com/api/v1/"))
+    base_url: HttpUrl = Field(
+        validation_alias="MERIT_API_BASE_URL", default=HttpUrl("https://api.appmerit.com/api/v1/")
+    )
     api_key: SecretStr = Field(validation_alias="MERIT_API_KEY", default=SecretStr(""))
     debugging_mode: bool = Field(default=False, validation_alias="MERIT_DEBUGGING_MODE")
     connect_timeout: float = 5.0
@@ -108,6 +110,7 @@ class PredicateAPISettings(BaseSettings):
             warnings.warn(
                 "MERIT_API_KEY is not set. Premium features will raise an exception if used."
             )
+
 
 class PredicateAPIClient:
     """Thin wrapper around an httpx.AsyncClient."""

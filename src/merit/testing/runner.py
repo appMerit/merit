@@ -177,7 +177,6 @@ class Runner:
             ctx = TestContext(item=item)
             execution = TestExecution(context=ctx, result=result)
             await self._notify_test_complete(execution)
-            await resolver.teardown_scope(Scope.CASE)
 
             merit_run.result.executions.append(execution)
 
@@ -204,18 +203,18 @@ class Runner:
             async with semaphore:
                 if stop_flag:
                     return (idx, None)
-                child_resolver = resolver.fork_for_case()
+
                 result: TestResult
                 t_start = time.perf_counter()
                 try:
                     test = self._factory.build(item)
                     if self.timeout:
                         result = await asyncio.wait_for(
-                            test.execute(child_resolver),
+                            test.execute(resolver),
                             timeout=self.timeout,
                         )
                     else:
-                        result = await test.execute(child_resolver)
+                        result = await test.execute(resolver)
                 except TimeoutError:
                     duration = (time.perf_counter() - t_start) * 1000
                     result = TestResult(
@@ -226,7 +225,7 @@ class Runner:
                 except Exception as e:
                     duration = (time.perf_counter() - t_start) * 1000
                     result = TestResult(status=TestStatus.ERROR, duration_ms=duration, error=e)
-                await child_resolver.teardown_scope(Scope.CASE)
+                await resolver.teardown_scope(Scope.CASE)
 
                 ctx = TestContext(item=item)
                 execution = TestExecution(context=ctx, result=result)

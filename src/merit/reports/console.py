@@ -187,7 +187,11 @@ class ConsoleReporter(Reporter):
         name = metric.name
         if metric.metadata.scope == Scope.CASE and metric.metadata.collected_from_merits:
             merits = sorted(metric.metadata.collected_from_merits)
-            name = f"{name}::{merits[0]}"
+            case_suffix = ""
+            if metric.metadata.collected_from_cases:
+                cases = sorted(metric.metadata.collected_from_cases)
+                case_suffix = escape(f"[{cases[0]}]")
+            name = f"{name}::{merits[0]}{case_suffix}"
 
         if total > 0:
             color = "red" if failed else "green"
