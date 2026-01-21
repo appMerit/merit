@@ -81,15 +81,17 @@
       }
     ]
   },
-  "topbarLinks": [
-    {
-      "name": "Support",
-      "url": "mailto:daniel@appmerit.com"
+  "navbar": {
+    "links": [
+      {
+        "label": "Support",
+        "href": "mailto:daniel@appmerit.com"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/appMerit/merit"
     }
-  ],
-  "topbarCtaButton": {
-    "type": "github",
-    "url": "https://github.com/appMerit/merit"
   },
   "contextual": {
     "options": [
@@ -100,7 +102,9 @@
       "cursor"
     ]
   },
-  "footerSocials": {
-    "github": "https://github.com/appMerit/merit"
+  "footer": {
+    "socials": {
+      "github": "https://github.com/appMerit/merit"
+    }
   }
 }
