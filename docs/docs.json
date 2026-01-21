@@ -102,5 +102,18 @@
   },
   "footerSocials": {
     "github": "https://github.com/appMerit/merit"
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/appMerit/merit"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/appMerit/merit"
+      }
+    ]
   }
 }
