@@ -9,7 +9,6 @@ from merit.context import (
     ResolverContext,
     TestContext as Ctx,
     assertions_collector,
-    metric_values_collector,
     metrics,
     predicate_results_collector,
     resolver_context_scope,
@@ -70,20 +69,15 @@ def test_assertionresult_appends_to_test_context():
     assert ar2 not in assertion_results
 
 
-def test_assertion_context_collects_predicate_results_and_metric_values():
+def test_assertion_context_collects_predicate_results():
     test_ctx = Ctx(item=_make_item("merit_name"))
 
-    m = Metric(name="m")
-    m.add_record([1, 2, 3])
-
-    # Collect predicate results and metric values into lists
+    # Collect predicate results into a list
     predicate_results_list = []
-    metric_values_list = []
 
     with (
         context_scope(test_ctx),
         predicate_results_collector(predicate_results_list),
-        metric_values_collector(metric_values_list),
     ):
         # PredicateResult should attach itself to the collector
         pr = PredicateResult(
@@ -92,10 +86,6 @@ def test_assertion_context_collects_predicate_results_and_metric_values():
         )
 
         assert pr.predicate_metadata.merit_name == "merit_name"
-
-        # Metric property access should push MetricSnapshot into the collector
-        assert m.len == 3
-        assert m.min == 1
 
     # Build AssertionResult with collected data
     ar = AssertionResult(
@@ -111,10 +101,6 @@ def test_assertion_context_collects_predicate_results_and_metric_values():
 
     assert len(ar.predicate_results) == 1
     assert ar.predicate_results[0] == pr
-
-    names = {mv.full_name for mv in metric_values_list}
-    assert "m.len" in names
-    assert "m.min" in names
 
 
 def test_metrics_records_assertion_passed_and_reads_test_context_for_metadata():

@@ -9,7 +9,6 @@ from merit.context import (
     ResolverContext,
     TestContext as Ctx,
     metric_results_collector,
-    metric_values_collector,
     resolver_context_scope,
     test_context_scope as context_scope,
 )
@@ -143,36 +142,6 @@ def test_metric_percentiles_with_single_value_returns_nans():
         percentiles = m.percentiles
     assert len(percentiles) == 99
     assert all(math.isnan(x) for x in percentiles)
-
-
-def test_metric_values_collector_records_property_access_with_normalized_values():
-    values = []
-    m = Metric("m")
-    m.add_record([1, 2, 2])
-
-    with metric_values_collector(values):
-        _ = m.raw_values
-        _ = m.counter
-        _ = m.distribution
-
-    by_name = {}
-    for mv in values:
-        by_name[mv.full_name] = mv.value
-
-    assert by_name["m.raw_values"] == (1, 2, 2)
-    assert by_name["m.counter"] == ((1, 1), (2, 2))
-    assert by_name["m.distribution"][0] == (1, pytest.approx(1 / 3))
-    assert by_name["m.distribution"][1] == (2, pytest.approx(2 / 3))
-
-
-def test_metric_values_collector_uses_default_name_when_metric_is_unnamed():
-    values = []
-    m = Metric()
-    with metric_values_collector(values):
-        assert m.len == 0
-
-    assert values[-1].full_name == "unnamed_metric.len"
-    assert values[-1].value == 0
 
 
 def test_metric_result_is_collected_when_collector_is_active():
