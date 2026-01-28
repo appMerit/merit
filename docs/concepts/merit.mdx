@@ -357,7 +357,7 @@ merit run --maxfail 3
 merit run --concurrency 5
 
 # Enable tracing
-merit run --trace --trace-output traces.jsonl
+merit run --trace --trace-output .merit/traces.jsonl
 
 # Verbose output
 merit run -v
@@ -400,7 +400,7 @@ runner = Runner(
     concurrency=10,         # 10 concurrent workers
     timeout=30.0,           # 30s timeout per merit
     enable_tracing=True,    # Enable OpenTelemetry tracing
-    trace_output="traces.jsonl"
+    trace_output=".merit/traces.jsonl"
 )
 
 result = await runner.run(path="tests/")

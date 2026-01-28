@@ -69,7 +69,7 @@ def init_tracing(
     *,
     service_name: str = "merit",
     trace_content: bool | None = None,
-    output_path: Path | str = "traces.jsonl",
+    output_path: Path | str = ".merit/traces.jsonl",
 ) -> None:
     """Initialize OpenTelemetry tracing with streaming file export.
 
