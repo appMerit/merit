@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import linecache
 import math
 import sys
 from pathlib import Path
@@ -10,8 +12,10 @@ from typing import TYPE_CHECKING
 from rich.console import Console, Group
 from rich.markup import escape
 from rich.panel import Panel
+from rich.pretty import Node
+from rich.traceback import Frame, Stack, Trace, Traceback
 
-from merit.context import get_merit_run
+from merit.context import get_runner
 from merit.reports.base import Reporter
 from merit.testing.models.run import RunEnvironment
 
@@ -131,22 +135,33 @@ class ConsoleReporter(Reporter):
             lines.extend(self._format_assertion_repr(assertion))
         return lines
 
-    def _format_error(self, error: BaseException | None, *, is_error: bool) -> list[str]:
+    def _format_error(self, error: BaseException | None) -> list[str] | Traceback:
         if not error:
             return []
-        if is_error:
-            return [f"{type(error).__name__}: {error}"]
-        return [str(error)]
+        if error.__traceback__:
+            return Traceback.from_exception(
+                type(error),
+                error,
+                error.__traceback__,
+                suppress=[__import__("merit")],
+                show_locals=self.verbosity >= 2,
+            )
+        return [f"{type(error).__name__}: {error}"]
 
-    def _build_failure_lines(self, result: TestResult) -> list[str]:
+    def _build_failure_lines(self, result: TestResult) -> list[str] | Traceback:
         lines = self._format_assertions(result.assertion_results)
         if lines:
             return lines
-        is_error = result.status == TestStatus.ERROR
-        return self._format_error(result.error, is_error=is_error)
+        return self._format_error(result.error)
 
-    def _build_failure_panel(self, title: str, lines: list[str], color: str) -> Panel:
-        content = "\n".join(escape(line) for line in lines) or " "
+    def _build_failure_panel(
+        self, title: str, lines: list[str] | Traceback, color: str
+    ) -> Panel:
+        content: str | Traceback = (
+            lines
+            if isinstance(lines, Traceback)
+            else "\n".join(escape(line) for line in lines) or " "
+        )
         return Panel(
             content,
             title=title,
@@ -198,8 +213,8 @@ class ConsoleReporter(Reporter):
 
     async def on_collection_complete(self, items: list[MeritTestDefinition]) -> None:
         environment = RunEnvironment()
-        merit_run = get_merit_run()
-        run_id = merit_run.run_id if merit_run else None
+        runner = get_runner()
+        run_id = runner.merit_run.run_id if runner and runner.merit_run else None
         self._print_run_header(environment, run_id)
         if self.verbosity >= 0:
             self.console.print(f"[bold]Collected {len(items)} tests[/bold]\n")
@@ -280,7 +295,7 @@ class ConsoleReporter(Reporter):
             self._print_failures()
 
         if result.stopped_early:
-            self.console.print("[yellow]Run terminated early due to maxfail limit.[/yellow]")
+            self.console.print("[yellow]Run terminated early.[/yellow]")
 
         self._print_metric_results(result.metric_results)
         self._print_summary(merit_run)
@@ -300,7 +315,7 @@ class ConsoleReporter(Reporter):
             sub_failures = [
                 sub
                 for sub in failure.sub_executions
-                if sub.result.status in {TestStatus.FAILED, TestStatus.ERROR}
+                if sub.result.status.is_failure
             ]
 
             if sub_failures:
@@ -417,10 +432,46 @@ class ConsoleReporter(Reporter):
                 self._print_metric_row(f"↳ {case_label}", stats, indent=4)
 
     async def on_run_stopped_early(self, failure_count: int) -> None:
-        self.console.print(f"[red]Stopping early after {failure_count} failure(s).[/red]")
+        self.console.print(f"\n\n[red]Stopping early after {failure_count} failure(s).[/red]")
 
     async def on_tracing_enabled(self, output_path: Path) -> None:
         if output_path.exists():
             self.console.print(
                 f"[dim]Tracing written to {output_path} ({output_path.stat().st_size} bytes)[/dim]"
             )
+
+    @staticmethod
+    def rich_traceback_from_json(data: str, *, show_locals: bool = False) -> Traceback:
+        """Reconstruct a Rich Traceback from stored JSON data.
+
+        Rich's Traceback normally requires live exception objects. This function
+        rebuilds a displayable Traceback from our stored JSON format by manually
+        constructing the internal Trace -> Stack -> Frame hierarchy.
+        """
+        parsed = json.loads(data)
+        frames = []
+        for f in parsed["frames"]:
+            # Convert stored repr strings to Rich Node objects for display
+            locals_nodes: dict[str, Node] | None = None
+            if show_locals and f.get("locals"):
+                locals_nodes = {k: Node(value_repr=v) for k, v in f["locals"].items()}
+
+            # Use stored line, fall back to linecache if source file still exists
+            frames.append(
+                Frame(
+                    filename=f["filename"],
+                    lineno=f["lineno"],
+                    name=f["name"],
+                    line=f.get("line") or linecache.getline(f["filename"], f["lineno"]).strip(),
+                    locals=locals_nodes,
+                )
+            )
+
+        # Build Rich's internal structure: Trace contains Stacks, Stack contains Frames
+        stack = Stack(
+            exc_type=parsed["exc_type"],
+            exc_value=parsed["exc_value"],
+            frames=frames,
+        )
+
+        return Traceback(Trace(stacks=[stack]), show_locals=show_locals)
