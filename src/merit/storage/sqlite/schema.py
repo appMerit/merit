@@ -97,4 +97,23 @@ CREATE INDEX IF NOT EXISTS idx_assertions_metric ON assertions(metric_id);
 CREATE INDEX IF NOT EXISTS idx_predicates_assertion ON predicates(assertion_id);
 CREATE INDEX IF NOT EXISTS idx_predicates_run ON predicates(run_id);
 CREATE INDEX IF NOT EXISTS idx_predicates_name ON predicates(predicate_name);
+
+CREATE TABLE IF NOT EXISTS trace_spans (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id              TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    test_execution_id   TEXT REFERENCES test_executions(execution_id) ON DELETE CASCADE,
+    trace_id            TEXT NOT NULL,
+    span_id             TEXT NOT NULL,
+    parent_span_id      TEXT,
+    name                TEXT NOT NULL,
+    start_time_ns       INTEGER NOT NULL,
+    end_time_ns         INTEGER NOT NULL,
+    duration_ms         REAL NOT NULL,
+    span_json           TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_trace_spans_run ON trace_spans(run_id);
+CREATE INDEX IF NOT EXISTS idx_trace_spans_execution ON trace_spans(test_execution_id);
+CREATE INDEX IF NOT EXISTS idx_trace_spans_trace ON trace_spans(trace_id);
+CREATE INDEX IF NOT EXISTS idx_trace_spans_name ON trace_spans(name);
 """

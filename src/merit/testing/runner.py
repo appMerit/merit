@@ -31,7 +31,7 @@ from merit.testing.models import (
     TestResult,
     TestStatus,
 )
-from merit.tracing import clear_traces, init_tracing
+from merit.tracing import clear_traces, get_span_collector, init_tracing
 
 
 class Runner:
@@ -83,7 +83,7 @@ class Runner:
         self.timeout = timeout
         self.concurrency = concurrency if concurrency > 0 else self.DEFAULT_MAX_CONCURRENCY
         self.enable_tracing = enable_tracing
-        self.trace_output = Path(trace_output) if trace_output else Path("traces.jsonl")
+        self.trace_output = Path(trace_output) if trace_output else Path(".merit/traces.jsonl")
         self.capture_output = capture_output
         self.save_to_db = save_to_db
         self.db_path = Path(db_path) if db_path else None
@@ -178,7 +178,12 @@ class Runner:
 
         if self.save_to_db:
             try:
-                SQLiteStore(self.db_path).save_run(merit_run)
+                store = SQLiteStore(self.db_path)
+                store.save_run(merit_run)
+                if self.enable_tracing:
+                    collector = get_span_collector()
+                    if collector:
+                        store.save_trace_spans(merit_run, collector)
             except Exception as e:
                 # Log warning but don't fail the run
                 # TODO: implement failover??

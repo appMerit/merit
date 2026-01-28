@@ -14,7 +14,7 @@ def init_tracing(
     *,
     service_name: str = "merit",
     trace_content: bool | None = None,
-    output_path: Path | str = "traces.jsonl",
+    output_path: Path | str = ".merit/traces.jsonl",
 ) -> None
 ```
 
@@ -24,7 +24,7 @@ def init_tracing(
 |------|------|---------|-------------|
 | `service_name` | `str` | `"merit"` | Service name in trace metadata |
 | `trace_content` | `bool \| None` | `None` | Whether to capture request/response content (defaults to `MERIT_TRACE_CONTENT` env var or `True`) |
-| `output_path` | `Path \| str` | `"traces.jsonl"` | File path for trace export |
+| `output_path` | `Path \| str` | `".merit/traces.jsonl"` | File path for trace export |
 
 **Returns:** `None`
 
@@ -173,7 +173,7 @@ def clear_traces() -> None
 from merit.tracing import clear_traces, init_tracing
 
 # Setup tracing
-init_tracing(output_path="traces.jsonl")
+init_tracing(output_path=".merit/traces.jsonl")
 
 # Run some tests...
 merit_run_1()
@@ -209,7 +209,7 @@ def set_trace_output_path(output_path: Path | str) -> None
 from merit.tracing import set_trace_output_path, init_tracing
 
 # Initial setup
-init_tracing(output_path="traces.jsonl")
+init_tracing(output_path=".merit/traces.jsonl")
 
 # Change output path mid-run
 set_trace_output_path("traces/experiment_2.jsonl")
@@ -300,7 +300,7 @@ def merit_test(my_agent, rag_system):
 from merit import init_tracing, sut
 
 # Initialize tracing
-init_tracing(output_path="traces.jsonl")
+init_tracing(output_path=".merit/traces.jsonl")
 
 @sut
 async def chatbot(prompt: str) -> str:

@@ -69,8 +69,8 @@ def _build_parser() -> argparse.ArgumentParser:
     test_parser.add_argument(
         "--trace-output",
         type=str,
-        default="traces.jsonl",
-        help="Output path for trace data (default: traces.jsonl)",
+        default=".merit/traces.jsonl",
+        help="Output path for trace data (default: .merit/traces.jsonl)",
     )
     test_parser.add_argument("-q", "--quiet", action="count", default=0, help="Reduce CLI output")
     test_parser.add_argument(

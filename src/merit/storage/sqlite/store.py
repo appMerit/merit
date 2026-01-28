@@ -16,6 +16,7 @@ from merit.storage.sqlite.schema import SCHEMA
 from merit.testing.models.definition import MeritTestDefinition
 from merit.testing.models.result import TestExecution, TestResult, TestStatus
 from merit.testing.models.run import MeritRun, RunEnvironment, RunResult
+from merit.tracing.lifecycle import InMemorySpanCollector
 
 
 DEFAULT_DB_NAME = ".merit/merit.db"
@@ -57,6 +58,13 @@ PREDICATE_INSERT_SQL = """
         run_id, assertion_id, predicate_name, actual, reference,
         strict, confidence, value, message
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+TRACE_SPAN_INSERT_SQL = """
+    INSERT INTO trace_spans (
+        run_id, test_execution_id, trace_id, span_id, parent_span_id, name,
+        start_time_ns, end_time_ns, duration_ms, span_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -169,6 +177,48 @@ class SQLiteStore(Store):
 
             for execution in run.result.executions:
                 self._save_assertions_for_execution(conn, run.run_id, execution)
+
+    def save_trace_spans(self, run: MeritRun, collector: InMemorySpanCollector) -> None:
+        """Save trace spans for a run."""
+        trace_to_execution: dict[str, str] = {}
+        stack = list(run.result.executions)
+        while stack:
+            execution = stack.pop()
+            if execution.trace_id:
+                trace_to_execution[execution.trace_id] = str(execution.execution_id)
+            stack.extend(execution.sub_executions)
+
+        if not trace_to_execution:
+            return
+
+        rows: list[tuple[object, ...]] = []
+        for trace_id, execution_id in trace_to_execution.items():
+            for span in collector.get_spans(trace_id):
+                start_time_ns = span.start_time
+                end_time_ns = span.end_time
+                duration_ms = (end_time_ns - start_time_ns) / 1_000_000
+                span_id = format(span.context.span_id, "016x")
+                parent = span.parent
+                parent_span_id = format(parent.span_id, "016x") if parent else None
+                span_json = span.to_json(indent=None)
+                rows.append(
+                    (
+                        str(run.run_id),
+                        execution_id,
+                        trace_id,
+                        span_id,
+                        parent_span_id,
+                        span.name,
+                        start_time_ns,
+                        end_time_ns,
+                        duration_ms,
+                        span_json,
+                    )
+                )
+
+        if rows:
+            with self._connect() as conn:
+                conn.executemany(TRACE_SPAN_INSERT_SQL, rows)
 
     def _save_assertion(
         self,
