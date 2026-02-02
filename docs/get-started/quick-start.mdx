@@ -50,7 +50,7 @@ cases = [
     Case(
         sut_input_values={"prompt": "When are you open?"},
         references={
-            "context": """Store hours: 
+            "context": """Store hours:
             9 AM - 6 PM, Monday-Saturday.
             Closed Sundays.""",
         },
@@ -99,7 +99,7 @@ cases = [
     Case(
         sut_input_values={"prompt": "When are you open?"},
         references={
-            "context": """Store hours: 
+            "context": """Store hours:
             9 AM - 6 PM, Monday-Saturday.
             Closed Sundays.""",
         },
@@ -156,7 +156,7 @@ cases = [
     Case(
         sut_input_values={"prompt": "When are you open?"},
         references={
-            "context": """Store hours: 
+            "context": """Store hours:
             9 AM - 6 PM, Monday-Saturday.
             Closed Sundays.""",
         },
@@ -204,7 +204,7 @@ async def merit_chatbot_no_hallucinations(
 <Step title="Run">
 
 ```bash
-uv run merit test
+uv run merit test --trace
 ```
 
 </Step>

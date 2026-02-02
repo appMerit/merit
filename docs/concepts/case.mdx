@@ -69,7 +69,7 @@ class AgentReference(BaseModel):
 case = Case[AgentReference](
     sut_input_values={"prompt": "Say hello"},
     references=AgentReference(
-        expected_keywords=["hello"], 
+        expected_keywords=["hello"],
         min_response_length=5
         ),
 )

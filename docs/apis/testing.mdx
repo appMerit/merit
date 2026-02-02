@@ -450,7 +450,7 @@ def merit_requires_api_key():
     """Skip test if API key is not configured."""
     if "API_KEY" not in os.environ:
         merit.skip("API_KEY not configured")
-    
+
     # Test continues only if API_KEY exists
     api_client = APIClient(api_key=os.environ["API_KEY"])
     assert api_client.health_check()
@@ -459,7 +459,7 @@ def merit_conditional_skip(database):
     """Skip based on runtime conditions."""
     if not database.is_available():
         merit.skip("Database not available")
-    
+
     result = database.query("SELECT 1")
     assert result
 ```
@@ -490,19 +490,19 @@ import merit
 def merit_explicit_failure(api_client):
     """Fail test when detecting invalid state."""
     response = api_client.get("/status")
-    
+
     if response.status_code == 500:
         merit.fail(f"Server returned 500 error: {response.text}")
-    
+
     assert response.status_code == 200
 
 def merit_validation_failure(data_processor):
     """Fail when preconditions aren't met."""
     data = data_processor.load()
-    
+
     if len(data) == 0:
         merit.fail("No data loaded - cannot run test")
-    
+
     result = data_processor.process(data)
     assert result
 ```
@@ -534,7 +534,7 @@ import sys
 def merit_known_bug():
     """Mark test as expected failure for a known bug."""
     merit.xfail("issue #42: division by zero not handled")
-    
+
     # This code won't execute
     result = 1 / 0
     assert result == 0
@@ -543,7 +543,7 @@ def merit_conditional_xfail():
     """Conditionally mark as expected failure."""
     if sys.version_info < (3, 12):
         merit.xfail("feature requires Python 3.12+")
-    
+
     # Test continues on Python 3.12+
     assert True
 ```

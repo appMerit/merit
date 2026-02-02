@@ -154,32 +154,32 @@ import merit
 def my_agent(prompt: str) -> str:
     with merit.trace_step("retrieve"):
         docs = retrieve_docs(prompt)
-    
+
     with merit.trace_step("generate"):
         return generate_response(docs)
 
 def merit_agent_workflow(my_agent, trace_context):
     """Use trace_context to assert on execution flow."""
     result = my_agent("What is Python?")
-    
+
     # Set custom attributes on test span
     trace_context.set_attribute("response.length", len(result))
-    
+
     # Get all child spans
     all_spans = trace_context.get_child_spans()
     assert len(all_spans) >= 2, "Expected at least 2 trace steps"
-    
+
     # Get SUT-specific spans
     sut_spans = trace_context.get_sut_spans(name="my_agent")
     assert len(sut_spans) == 1
     assert sut_spans[0].name == "sut.my_agent"
-    
+
     # Get LLM calls (if any)
     llm_calls = trace_context.get_llm_calls()
     for call in llm_calls:
         model = call.attributes.get("llm.model")
         print(f"LLM call used model: {model}")
-    
+
     # Check trace IDs for correlation
     print(f"Trace ID: {trace_context.trace_id}")
     print(f"Span ID: {trace_context.span_id}")
@@ -192,11 +192,11 @@ def merit_multiple_suts(agent_a, agent_b, trace_context):
     """Filter SUT spans by name when multiple SUTs are used."""
     result_a = agent_a("query 1")
     result_b = agent_b("query 2")
-    
+
     # Get spans for specific SUT
     agent_a_spans = trace_context.get_sut_spans(name="agent_a")
     agent_b_spans = trace_context.get_sut_spans(name="agent_b")
-    
+
     assert len(agent_a_spans) == 1
     assert len(agent_b_spans) == 1
 ```

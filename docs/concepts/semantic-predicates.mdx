@@ -31,22 +31,22 @@ async def merit_customer_faq_bot(faq_bot):
 
     # Customer asks a question, bot generates response
     response = faq_bot.answer(
-        "When are you open?", 
+        "When are you open?",
         context=knowledge
     )
-    # Example output: 
+    # Example output:
     # "We're open Monday through Saturday, 9 AM to 6 PM.
     # We're closed Sundays and holidays."
 
     # Verify response doesn't hallucinate facts
     assert not await has_unsupported_facts(
-        response, 
+        response,
         knowledge
     )
 
     # Verify response follows customer service guidelines
     conversation_policy = """
-    Agent always asks if they can help with 
+    Agent always asks if they can help with
     any other questions.
     """
     assert await follows_policy(response, conversation_policy)
@@ -64,8 +64,8 @@ from merit.predicates import has_conflicting_facts
 async def merit_rag_no_contradictions(rag_system):
     # Source document about a company
     source = """
-    Acme Corp was founded in 2018. 
-    The company has 150 employees and is headquartered 
+    Acme Corp was founded in 2018.
+    The company has 150 employees and is headquartered
     in Austin, Texas. Revenue was $12M in 2023.
     """
 
@@ -75,7 +75,7 @@ async def merit_rag_no_contradictions(rag_system):
     # Passes: answer doesn't contradict
     assert not await has_conflicting_facts(answer, source)
 
-    # Bad output: 
+    # Bad output:
     # "Acme Corp was founded in 2015 in San Francisco..."
     # Would fail: contradicts year and location
 ```
@@ -90,21 +90,21 @@ from merit.predicates import has_unsupported_facts
 async def merit_no_hallucinations(rag_system):
     # Knowledge base only contains this information
     source = """
-    Python 3.12 was released in October 2023. 
+    Python 3.12 was released in October 2023.
     It introduced f-string improvements.
     """
 
     answer = rag_system.query("What's new in Python 3.12?")
-    # Example output: 
-    # "Python 3.12 came out in October 2023 
+    # Example output:
+    # "Python 3.12 came out in October 2023
     # with better f-strings."
 
     # Passes: all facts are grounded in source
     assert not await has_unsupported_facts(answer, source)
 
-    # Bad output: 
-    # "Python 3.12 released October 2023 with 
-    # f-string improvements and a new JIT compiler 
+    # Bad output:
+    # "Python 3.12 released October 2023 with
+    # f-string improvements and a new JIT compiler
     # for 2x faster performance."
     # Would fail: JIT compiler claim is hallucinated
 ```
@@ -126,14 +126,14 @@ async def merit_includes_required_info(medical_summary_bot):
     """
 
     summary = medical_summary_bot.summarize(patient_notes)
-    # Example: 
-    # "45-year-old male presenting with 2-hour 
-    # chest pain. Elevated BP at 150/95. 
+    # Example:
+    # "45-year-old male presenting with 2-hour
+    # chest pain. Elevated BP at 150/95.
     # Cardiac workup initiated."
 
     # Critical facts that must appear in any summary
     required = """
-    chest pain, elevated blood pressure, 
+    chest pain, elevated blood pressure,
     cardiac workup
     """
     assert await has_facts(summary, required)
@@ -148,20 +148,20 @@ from merit.predicates import matches_facts
 
 async def merit_translation_preserves_meaning(translator):
     original = """
-    The quarterly report shows 23% growth in 
+    The quarterly report shows 23% growth in
     European markets.
     """
 
     translated = translator.translate(
-        original, 
+        original,
         target="spanish"
     )
     back_translated = translator.translate(
-        translated, 
+        translated,
         target="english"
     )
-    # Example: 
-    # "The quarterly report indicates 23% growth 
+    # Example:
+    # "The quarterly report indicates 23% growth
     # in European markets."
 
     # Facts should match despite rewording
@@ -182,16 +182,16 @@ async def merit_onboarding_covers_topics(onboarding_bot):
     response = onboarding_bot.chat(
         "What benefits do I get?"
     )
-    # Example: 
-    # "Welcome! Your benefits include comprehensive 
-    # health insurance with dental and vision, 
+    # Example:
+    # "Welcome! Your benefits include comprehensive
+    # health insurance with dental and vision,
     # a 401k with 4% company match, and 20 days PTO.
-    # You're also eligible for our annual bonus 
+    # You're also eligible for our annual bonus
     # program."
 
     # Response must cover these key topics
     topics = """
-    health insurance, retirement plan, 
+    health insurance, retirement plan,
     paid time off
     """
     assert await has_topics(response, topics)
@@ -210,11 +210,11 @@ async def merit_support_follows_guidelines(support_bot):
     # Customer asking about competitor
     question = "Is your product better than CompetitorX?"
     response = support_bot.chat(question)
-    # Example: 
-    # "I'd be happy to tell you about our product's 
-    # strengths! We offer 24/7 support, 99.9% uptime, 
-    # and flexible pricing. I can't compare directly 
-    # to other products, but I can answer any 
+    # Example:
+    # "I'd be happy to tell you about our product's
+    # strengths! We offer 24/7 support, 99.9% uptime,
+    # and flexible pricing. I can't compare directly
+    # to other products, but I can answer any
     # questions about what we offer."
 
     policy = """
@@ -241,26 +241,26 @@ async def merit_maintains_brand_voice(marketing_bot):
     description = marketing_bot.generate(
         "Describe our new running shoes"
     )
-    # Example: 
-    # "Meet the CloudRunner Pro. Engineered for 
-    # the long haul. 47% lighter than last gen. 
+    # Example:
+    # "Meet the CloudRunner Pro. Engineered for
+    # the long haul. 47% lighter than last gen.
     # Zero compromises."
 
     # Brand voice reference: punchy, confident, minimal
     brand_voice = """
-    Built different. The UltraFrame bike handles 
-    like nothing else. Carbon fiber. 
+    Built different. The UltraFrame bike handles
+    like nothing else. Carbon fiber.
     Precision engineering. Pure speed.
     """
 
     assert await matches_writing_style(
-        description, 
+        description,
         brand_voice
     )
 
-    # Would fail with: 
-    # "Our new running shoes are very comfortable 
-    # and lightweight, offering great support for 
+    # Would fail with:
+    # "Our new running shoes are very comfortable
+    # and lightweight, offering great support for
     # runners of all levels..."
     # (too generic and wordy for this brand voice)
 ```
@@ -365,36 +365,36 @@ async def matches_tone_with_gpt4(
     strict: bool = False
 ) -> bool:
     """Check if actual text matches the tone of reference using GPT-4.
-    
+
     Args:
         actual: The text to evaluate
         reference: Example text with desired tone
         strict: Whether to require exact tone match or allow similar tones
     """
     prompt = f"""Compare the tone of these two texts.
-    
+
     Reference tone: {reference}
-    
+
     Text to evaluate: {actual}
-    
+
     Does the text to evaluate match the reference tone?
     {"Require exact match." if strict else "Allow similar tones."}
-    
+
     Answer only 'yes' or 'no'."""
-    
+
     response = await client.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
         temperature=0
     )
-    
+
     answer = response.choices[0].message.content.strip().lower()
     return answer == "yes"
 
 async def merit_brand_consistency(marketing_bot):
     brand_example = "Hey there! 👋 Let's make this happen together."
     generated = marketing_bot.create_post("Announce new feature")
-    
+
     assert await matches_tone_with_gpt4(
         generated,
         brand_example,
@@ -420,7 +420,7 @@ async def merit_json_output(api):
 
     # Semantic predicate overkill for structured data
     assert await has_facts(
-        str(result), 
+        str(result),
         '{"name": "Alice"}'
     )
 ```
@@ -435,7 +435,7 @@ def merit_json_output(api):
 
 # Use semantic predicates for natural language
 from merit.predicates import (
-    has_facts, 
+    has_facts,
     has_unsupported_facts
 )
 
@@ -446,7 +446,7 @@ async def merit_text_generation(llm):
     # Semantic checks for flexible language matching
     assert await has_facts(summary, "founded in 2020")
     assert not await has_unsupported_facts(
-        summary, 
+        summary,
         context
     )
 ```
@@ -468,7 +468,7 @@ async def merit_product_description(product_copilot):
     product_data = """
     Name: ThermoPro X500
     Price: $299
-    Features: Temperature sensing, WiFi connectivity, 
+    Features: Temperature sensing, WiFi connectivity,
               Mobile app
     Warranty: 2 years
     """
@@ -476,37 +476,37 @@ async def merit_product_description(product_copilot):
     description = product_copilot.generate_description(
         product_data
     )
-    # Example output: 
-    # "The ThermoPro X500 ($299) brings smart 
-    # temperature monitoring to your home. 
-    # Connect via WiFi, control from our mobile app, 
+    # Example output:
+    # "The ThermoPro X500 ($299) brings smart
+    # temperature monitoring to your home.
+    # Connect via WiFi, control from our mobile app,
     # and enjoy peace of mind with a 2-year warranty."
 
     # Layer 1: No hallucinated features or specs
     assert not await has_unsupported_facts(
-        description, 
+        description,
         product_data
     )
 
     # Layer 2: Price and warranty not misstated
     assert not await has_conflicting_facts(
-        description, 
+        description,
         product_data
     )
 
     # Layer 3: Must mention key selling points
     assert await has_topics(
-        description, 
+        description,
         "WiFi, mobile app, warranty"
     )
 
     # Layer 4: Follow marketing guidelines
     marketing_policy = """
-    No superlatives like 'best' or 'revolutionary'. 
+    No superlatives like 'best' or 'revolutionary'.
     No competitor mentions.
     """
     assert await follows_policy(
-        description, 
+        description,
         marketing_policy
     )
 ```
@@ -521,25 +521,25 @@ from merit.predicates import has_facts
 async def merit_financial_report(report_bot):
     # Financial data requires precision
     quarterly_data = """
-    Q3 revenue: $4.2M. Operating margin: 23.5%. 
+    Q3 revenue: $4.2M. Operating margin: 23.5%.
     Headcount: 142.
     """
 
     report = report_bot.summarize(quarterly_data)
-    # Example: 
-    # "Third quarter brought in $4.2M revenue 
-    # with healthy 23.5% margins. Team size stable 
+    # Example:
+    # "Third quarter brought in $4.2M revenue
+    # with healthy 23.5% margins. Team size stable
     # at 142 employees."
 
-    # Lenient: "brought in $4.2M" semantically 
+    # Lenient: "brought in $4.2M" semantically
     # matches "$4.2M revenue"
     assert await has_facts(
-        report, 
-        "revenue was $4.2M", 
+        report,
+        "revenue was $4.2M",
         strict=False
     )
 
-    # Strict: exact figures must appear - 
+    # Strict: exact figures must appear -
     # "around 24%" would fail
     assert await has_facts(report, "23.5%", strict=True)
     assert await has_facts(report, "142", strict=True)

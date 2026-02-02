@@ -95,7 +95,7 @@ async def merit_chatbot_no_hallucinations(
 Run it:
 
 ```bash
-merit test
+merit test --trace
 ```
 
 Output:
