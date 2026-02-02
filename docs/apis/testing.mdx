@@ -252,8 +252,8 @@ class MeritSupportBot:
 
 **CLI Usage:**
 ```bash
-merit run --tag smoke    # Only smoke tests
-merit run --tag slow     # Only slow tests
+merit test --tag smoke    # Only smoke tests
+merit test --tag slow     # Only slow tests
 ```
 
 ---
@@ -398,7 +398,7 @@ Enum defining resource lifecycle scopes.
 **Example:**
 ```python
 from merit import resource
-from merit.testing.resources import Scope
+from merit.resources import Scope
 
 @resource(scope=Scope.SESSION)
 def expensive_model():
@@ -419,6 +419,143 @@ def temp_dir():
 ---
 
 ## Functions
+
+### Imperative Outcome Control
+
+Merit provides imperative functions to control test outcomes at runtime. These are different from decorators and are used for conditional control flow within tests.
+
+#### skip
+
+Skip the current test imperatively.
+
+**Signature:**
+```python
+def skip(reason: str = "") -> NoReturn
+```
+
+**Parameters:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `reason` | `str` | `""` | Explanation for why the test is being skipped |
+
+**Returns:** Never returns (raises `SkipTest` exception)
+
+**Example:**
+```python
+import merit
+import os
+
+def merit_requires_api_key():
+    """Skip test if API key is not configured."""
+    if "API_KEY" not in os.environ:
+        merit.skip("API_KEY not configured")
+
+    # Test continues only if API_KEY exists
+    api_client = APIClient(api_key=os.environ["API_KEY"])
+    assert api_client.health_check()
+
+def merit_conditional_skip(database):
+    """Skip based on runtime conditions."""
+    if not database.is_available():
+        merit.skip("Database not available")
+
+    result = database.query("SELECT 1")
+    assert result
+```
+
+---
+
+#### fail
+
+Explicitly fail the current test.
+
+**Signature:**
+```python
+def fail(reason: str = "") -> NoReturn
+```
+
+**Parameters:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `reason` | `str` | `""` | Explanation for why the test is failing |
+
+**Returns:** Never returns (raises `FailTest` exception)
+
+**Example:**
+```python
+import merit
+
+def merit_explicit_failure(api_client):
+    """Fail test when detecting invalid state."""
+    response = api_client.get("/status")
+
+    if response.status_code == 500:
+        merit.fail(f"Server returned 500 error: {response.text}")
+
+    assert response.status_code == 200
+
+def merit_validation_failure(data_processor):
+    """Fail when preconditions aren't met."""
+    data = data_processor.load()
+
+    if len(data) == 0:
+        merit.fail("No data loaded - cannot run test")
+
+    result = data_processor.process(data)
+    assert result
+```
+
+---
+
+#### xfail
+
+Mark the current test as expected to fail and stop execution.
+
+**Signature:**
+```python
+def xfail(reason: str = "") -> NoReturn
+```
+
+**Parameters:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `reason` | `str` | `""` | Explanation for why the test is expected to fail |
+
+**Returns:** Never returns (raises `XFailTest` exception)
+
+**Example:**
+```python
+import merit
+import sys
+
+def merit_known_bug():
+    """Mark test as expected failure for a known bug."""
+    merit.xfail("issue #42: division by zero not handled")
+
+    # This code won't execute
+    result = 1 / 0
+    assert result == 0
+
+def merit_conditional_xfail():
+    """Conditionally mark as expected failure."""
+    if sys.version_info < (3, 12):
+        merit.xfail("feature requires Python 3.12+")
+
+    # Test continues on Python 3.12+
+    assert True
+```
+
+**Note:** These imperative functions are different from the decorators:
+- `merit.skip()` (function) vs `@merit.tag.skip()` (decorator)
+- `merit.fail()` (function) vs no decorator equivalent
+- `merit.xfail()` (function) vs `@merit.tag.xfail()` (decorator)
+
+Use decorators for unconditional outcomes known at definition time. Use functions for conditional outcomes determined at runtime.
+
+---
 
 ### iter_cases
 

@@ -1,0 +1,145 @@
+---
+title: "Trace"
+---
+
+`Trace` is the structured execution record of a single merit case. In Merit, **each test run gets its own OpenTelemetry trace**: a tree of spans showing what happened (tools, retrieval steps, LLM calls), when it happened, and how long it took.
+
+<Warning>
+This page uses “trace” in the OpenTelemetry sense (spans you can query and assert on), not a Python exception traceback/stacktrace.
+</Warning>
+
+Using traces enables:
+- Debugging and explaining *why* a merit failed (what steps ran, in what order, and how long they took)
+- Asserting on **execution behavior**, not just outputs (tool calls happened, retrieval ran, etc.)
+- Correlating LLM spans with your SUT spans and custom pipeline steps
+
+## How Merit traces are structured
+
+When tracing is enabled, Merit wraps each merit case in a root span:
+- `test.<full_name>`
+
+Inside that test span, you’ll typically see:
+- **SUT spans**: created by [`@merit.sut`](/concepts/sut), named `sut.<sut_name>`
+- **Custom step spans**: created by `merit.trace_step("...")`
+- **LLM spans**: auto-instrumented spans whose names usually start with `openai.`, `anthropic.`, or `gen_ai.`
+
+## Enable tracing
+
+Tracing is disabled by default. Enable it from the CLI:
+
+```bash
+merit test --trace
+```
+
+By default, spans are exported to `.merit/traces.jsonl`. You can override the output path:
+
+```bash
+merit test --trace --trace-output traces/run_001.jsonl
+```
+
+<Note>
+The injected `trace_context` parameter is only available when tracing is enabled. Without `--trace`, resolving `trace_context` raises at runtime.
+</Note>
+
+## Basic Usage
+
+Use `trace_context` to query spans created during the current merit case execution:
+
+```python
+import merit
+
+
+@merit.sut
+def weather_agent(prompt: str) -> str:
+    with merit.trace_step("retrieve"):
+        docs = ["SF is foggy", "Temps are cool"]
+
+    with merit.trace_step("generate", {"doc_count": len(docs)}):
+        return f"Answer for: {prompt}"
+
+
+def merit_can_inspect_trace(weather_agent, trace_context):
+    out = weather_agent("What's the weather in SF?")
+
+    # All spans created during this test (same trace_id)
+    spans = trace_context.get_child_spans()
+    assert spans
+
+    # Spans created by @merit.sut
+    sut_spans = trace_context.get_sut_spans(name="weather_agent")
+    assert sut_spans[0].attributes.get("merit.sut.name") == "weather_agent"
+
+    # Attach extra context to the test root span
+    trace_context.set_attribute("response.length", len(out))
+```
+
+## Common patterns
+
+### Assert tool-calling contracts (tool dependency + no loops + permissions)
+
+The main point of tracing is enforcing **workflow contracts** that matter in production (especially for agents): not just “did we return a good string”, but “did we call the right tools, in the right shape, without runaway loops”.
+
+#### 1. If tool A was called, tool B must also be called
+
+Example contract: “if we called `search`, we must also call `cite_sources`”.
+
+```python
+def merit_tool_dependency(my_agent, trace_context):
+    my_agent("Find the policy and cite sources")
+
+    tools: list[str] = []
+    for span in trace_context.get_llm_calls():
+        attrs = span.attributes or {}
+        for key, value in attrs.items():
+            if key.startswith("llm.request.functions.") and key.endswith(".name") and value:
+                tools.append(str(value))
+
+    if "search" in tools:
+        assert "cite_sources" in tools
+```
+
+#### 2. Assert there are no tool-calling loops (ABAB..., ABCABC...)
+
+This catches common failure modes like calling the same 2–3 tools in a tight cycle.
+
+```python
+def merit_no_tool_loops(my_agent, trace_context):
+    my_agent("Solve the task with tools, but don't loop.")
+
+    tools: list[str] = []
+    for span in trace_context.get_llm_calls():
+        attrs = span.attributes or {}
+        for key, value in attrs.items():
+            if key.startswith("llm.request.functions.") and key.endswith(".name") and value:
+                tools.append(str(value))
+
+    # Example: ["A","B","A","B",...] or ["A","B","C","A","B","C",...]
+    for pattern_len in (2, 3):
+        for i in range(0, len(tools) - 2 * pattern_len + 1):
+            assert tools[i : i + pattern_len] != tools[i + pattern_len : i + 2 * pattern_len]
+```
+
+### Inspect LLM calls
+
+If your SUT triggers instrumented LLM clients, you can locate those spans:
+
+```python
+def merit_llm_calls_are_traced(my_agent, trace_context):
+    my_agent("hello")
+
+    llm_spans = trace_context.get_llm_calls()
+```
+
+## Recommendations
+
+### 1. Prefer trace assertions for execution guarantees
+
+If correctness depends on *how* the system behaves (e.g., “must call retrieval”, “must call tool X”), asserting on spans is more robust than parsing free-form text output.
+
+### 2. Keep spans high-signal
+
+Create a small number of meaningful steps (`retrieve`, `rerank`, `generate`) rather than tracing every minor helper function.
+
+### 3. Be deliberate about content capture
+
+Traces may include request/response content depending on configuration. See the tracing API docs (especially `MERIT_TRACE_CONTENT`) in [`docs/apis/tracing.mdx`](/apis/tracing).

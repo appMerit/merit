@@ -85,11 +85,11 @@ Thread-safe class for recording data and computing statistical properties.
 
 | Method | Parameters | Description |
 |--------|------------|-------------|
-| `add_record` | `value: int \| float \| bool \| list \| tuple` | Record one or more data points |
+| `add_record` | `value: int \| float \| bool \| list[int \| float \| bool] \| tuple[int \| float \| bool, ...]` | Record one or more data points (numeric/bool only) |
 
 **Statistical Properties:**
 
-All properties are computed lazily and cached. Accessing a property automatically records it for assertion tracking.
+All properties are computed lazily and cached. Recording happens when you call `add_record(...)` (manually) or when you use `with metrics(...)` to record assertion pass/fail outcomes.
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -367,8 +367,10 @@ def merit_evaluation(model, precision: Metric, recall: Metric):
 ```python
 from merit import Metric, metric, metrics
 
+SENTIMENT_TO_SCORE = {"negative": -1, "neutral": 0, "positive": 1}
+
 @metric
-def sentiment_distribution():
+def sentiment_score_distribution():
     metric = Metric()
     yield metric
 
@@ -376,21 +378,22 @@ def sentiment_distribution():
     total = metric.len
     dist = metric.distribution
 
-    print(f"Positive: {dist.get('positive', 0) * 100:.1f}%")
-    print(f"Negative: {dist.get('negative', 0) * 100:.1f}%")
-    print(f"Neutral: {dist.get('neutral', 0) * 100:.1f}%")
+    print(f"Positive: {dist.get(1, 0) * 100:.1f}%")
+    print(f"Neutral: {dist.get(0, 0) * 100:.1f}%")
+    print(f"Negative: {dist.get(-1, 0) * 100:.1f}%")
 
     # Ensure balanced distribution
-    for sentiment in ['positive', 'negative', 'neutral']:
-        rate = dist.get(sentiment, 0)
-        assert 0.2 < rate < 0.5, f"{sentiment} rate out of range: {rate}"
+    for score in (-1, 0, 1):
+        rate = dist.get(score, 0)
+        assert 0.2 < rate < 0.5, f"score {score} rate out of range: {rate}"
 
 @merit.parametrize("text", test_texts)
-def merit_sentiment(text, classifier, sentiment_distribution: Metric):
-    result = classifier.classify(text)
+def merit_sentiment(text, classifier, sentiment_score_distribution: Metric):
+    label = classifier.classify(text)  # e.g. "positive" | "neutral" | "negative"
+    score = SENTIMENT_TO_SCORE[label]
 
-    # Record categorical values
-    sentiment_distribution.add_record(result)
+    # Record numeric values
+    sentiment_score_distribution.add_record(score)
 ```
 
 ### Percentile Analysis

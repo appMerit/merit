@@ -2,17 +2,12 @@
 title: "SUT"
 ---
 
-<Note>SUT stands for *System Under Test*</Note>
-<Note>The SUT decorator is completely optional and not required to run merits.</Note>
+<Note>SUT stands for *System Under Test*.</Note>
+<Note>`@merit.sut` is optional. It exists to make your agent/workflow callable injectable and traceable.</Note>
 
-Developers can pass any number of callables to a `merit` function, but usually only some of these represent the actual agents or workflows being evaluated. Decorating these AI systems with `@merit.sut` helps Merit better understand and analyze your merit suite.
-
-Using the decorator enables:
-- Accessing trace spans for assertions
-- Quality reports for AI systems
-- Automatic error analysis
-- Synthetic test case generation
-
+`@merit.sut` registers a function (or class) as an injectable **resource** and wraps each invocation in an OpenTelemetry span. This gives you two things:
+- A clean dependency injection (DI) boundary in your merits (you call the injected parameter, not a global).
+- Trace spans you can query inside a test via `trace_context` (when tracing is enabled).
 
 ```python
 import merit
@@ -27,7 +22,11 @@ def merit_chatbot_works(chatbot):
 ```
 
 ## Basic Usage
-The most common use case for the `@merit.sut` decorator is accessing trace spans for assertions.
+The most common use case for `@merit.sut` is asserting on the SUT call span(s).
+
+<Note>
+`trace_context` is only available when tracing is enabled. From the CLI, run `merit test --trace`.
+</Note>
 
 <Steps>
 <Step title="Decorate the system under test">
@@ -41,7 +40,7 @@ from demo_app import agent
 @merit.sut
 def weather_agent(prompt: str):
     # Pass arguments to your production agent
-    return agent(prompt, tools=['get_weather'])
+    return agent(prompt, tools=["get_weather"])
 ```
 </Step>
 <Step title="Inject into a `merit` and assert on the trace">
@@ -52,14 +51,69 @@ def weather_agent(prompt: str):
 def merit_weather_agent_calls_tools(weather_agent, trace_context):
     out = weather_agent("What's the weather in SF?")
 
-    # Retrieve spans specifically for this SUT
-    spans = trace_context.get_sut_spans(weather_agent)
+    # Retrieve spans for this SUT by name (defaults to the function name)
+    spans = trace_context.get_sut_spans(name="weather_agent")
 
-    # Assert that the agent called a tool instead of using internal knowledge
-    assert spans[1].attributes.get("llm.request.functions.0.name") == "get_weather"
+    # Assert on SUT span attributes emitted by Merit
+    assert spans
+    assert spans[0].attributes.get("merit.sut.name") == "weather_agent"
 ```
 </Step>
 </Steps>
+
+## What `@merit.sut` actually does
+
+### Injection semantics
+`@merit.sut` registers a session-scoped resource factory so the Merit runner can inject it into tests by parameter name.
+
+That’s why you should call the injected `chatbot` parameter inside `merit_chatbot_works(chatbot)`, not the decorated global name.
+
+### Naming rules (important for DI and `get_sut_spans`)
+- **Default name**: function name (`def weather_agent(...)` → `"weather_agent"`).
+- **Name override**: `@merit.sut(name="...")`.
+- **Classes**: default name is snake_case of the class (`MyAgent` → `"my_agent"`).
+
+### Class-based SUTs
+You can register a class as the SUT. By default Merit traces `__call__`, but you can specify another method:
+
+```python
+import merit
+
+@merit.sut
+class WeatherAgent:
+    def __call__(self, prompt: str) -> str:
+        return f"ok: {prompt}"
+
+def merit_class_sut_is_injected(weather_agent):
+    out = weather_agent("hi")
+    assert out
+```
+
+```python
+import merit
+
+@merit.sut(method="run")
+class Agent:
+    def run(self, task: str) -> str:
+        return f"done: {task}"
+
+def merit_custom_method(agent):
+    out = agent.run("task")
+    assert out
+```
+
+## SUT span attributes
+Each SUT call creates a span named `sut.<sut_name>` and sets:
+- `merit.sut=true`
+- `merit.sut.name=<sut_name>`
+
+If `MERIT_TRACE_CONTENT=true` (default), Merit also records:
+- `sut.input.args` / `sut.input.kwargs` (truncated repr)
+- `sut.output` (truncated repr)
+
+If `MERIT_TRACE_CONTENT=false`, Merit records only coarse metadata:
+- `sut.input.count`
+- `sut.output.type`
 
 ## Recommendations
 
@@ -71,6 +125,7 @@ Many evaluation frameworks require developers to modify their production codebas
 ```python
 # src/app/agent.py
 import merit
+from typing import Literal
 
 @merit.sut
 def agent(prompt: str, domain: Literal["marketing", "coding"]) -> str:
@@ -88,7 +143,7 @@ from app import agent
 @merit.sut
 def marketing_agent(prompt: str) -> str:
     """Q&A system that answers questions about marketing concepts"""
-    return agent(prompt, domain='marketing')
+    return agent(prompt, domain="marketing")
 
 def merit_marketing_agent_invokes(marketing_agent):
     out = marketing_agent("What's CAC?")
@@ -97,7 +152,7 @@ def merit_marketing_agent_invokes(marketing_agent):
 
 ### 2. Pass using Dependency Injection; don't call directly
 
-The Merit engine tracks how `merit` items consume resources. Using dependency injection helps Merit build more accurate reports and provide better code suggestions.
+`@merit.sut` registers a resource factory for injection. Calling the decorated global directly is the wrong pattern (and may not work the way you expect). Always call the injected parameter.
 
 **Don't do this:**
 ```python
@@ -108,9 +163,9 @@ def chatbot(prompt: str) -> str:
     return f"Bot response: {prompt}"
 
 def merit_chatbot_runs():
-    # Calling the global SUT directly hides it from Merit's analyzer
+    # This is the resource factory, not the injected callable
     out = chatbot("Hello!")
-    assert "Hello!" in out
+    assert out
 ```
 
 **Do this:**
@@ -122,7 +177,6 @@ def chatbot(prompt: str) -> str:
     return f"Bot response: {prompt}"
 
 def merit_chatbot_runs(chatbot):
-    # Injecting the SUT allows Merit to track its execution
     out = chatbot("Hello!")
-    assert "Hello!" in out
+    assert out
 ```

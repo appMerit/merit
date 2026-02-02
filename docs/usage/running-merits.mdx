@@ -21,8 +21,6 @@ merit test tests/
 merit test merit_chatbot.py merit_agent.py
 ```
 
-**Discovery**: Merit follows pytest-style patterns. See [Merit > Discovery](/concepts/merit#merit-discovery) for complete rules.
-
 ## Filtering Tests
 
 ### By Keyword Expression
@@ -110,6 +108,17 @@ merit test --concurrency 0
 - **Concurrent (>1)**: Faster runs for independent tests. Use with stateless SUTs.
 - **Unlimited (0)**: Maximum parallelism for large test suites.
 
+### Timeout
+
+Set a global timeout for the entire test run:
+
+```bash
+# Stop after 300 seconds (5 minutes)
+merit test --timeout 300
+```
+
+The timeout applies to the entire test session, not individual tests.
+
 ### Verbosity
 
 Control output detail with `-v` (verbose) or `-q` (quiet):
@@ -133,6 +142,20 @@ merit test -vv
 - `-q`: Less output
 - Default (0): Standard output
 - `-v`, `-vv`: More detail
+
+### Output Capture
+
+By default, Merit captures stdout and stderr during test execution. Use `-s` to show output live:
+
+```bash
+# Show output in real-time (still captured for reports)
+merit test -s
+
+# Or the long form
+merit test --show-output
+```
+
+This is useful for debugging tests with print statements or logging output.
 
 ## Tracing
 
@@ -273,6 +296,88 @@ from merit.reports import ConsoleReporter
 reporter = ConsoleReporter(verbosity=1)
 ```
 
+### Creating Custom Reporters
+
+Create custom reporters by subclassing `Reporter` and implementing all abstract methods:
+
+```python
+from pathlib import Path
+from merit.reports.base import Reporter
+from merit.testing import MeritTestDefinition, MeritRun, TestExecution
+import json
+
+class JsonFileReporter(Reporter):
+    """Custom reporter that writes results to JSON file."""
+
+    def __init__(self, output_path: str):
+        self.output_path = Path(output_path)
+        self.results = []
+
+    async def on_no_tests_found(self) -> None:
+        print("No tests found")
+
+    async def on_collection_complete(self, items: list[MeritTestDefinition]) -> None:
+        print(f"Collected {len(items)} tests")
+
+    async def on_test_complete(self, execution: TestExecution) -> None:
+        # Record each test result
+        self.results.append({
+            "name": execution.item.full_name,
+            "status": execution.status.value,
+            "duration_ms": execution.result.duration_ms,
+            "passed": execution.status.value == "passed"
+        })
+
+    async def on_run_complete(self, merit_run: MeritRun) -> None:
+        # Write all results to JSON file
+        output = {
+            "run_id": str(merit_run.run_id),
+            "total": merit_run.result.total,
+            "passed": merit_run.result.passed,
+            "failed": merit_run.result.failed,
+            "duration_ms": merit_run.result.total_duration_ms,
+            "tests": self.results
+        }
+
+        self.output_path.write_text(json.dumps(output, indent=2))
+        print(f"Results written to {self.output_path}")
+
+    async def on_run_stopped_early(self, failure_count: int) -> None:
+        print(f"Run stopped after {failure_count} failures")
+
+    async def on_tracing_enabled(self, output_path: Path) -> None:
+        print(f"Tracing enabled: {output_path}")
+```
+
+### Using Multiple Reporters
+
+Use multiple reporters simultaneously with the programmatic API:
+
+```python
+import asyncio
+from merit.testing import Runner
+from merit.reports import ConsoleReporter
+from my_reporters import JsonFileReporter, SlackReporter
+
+async def main():
+    # Create multiple reporters
+    console = ConsoleReporter(verbosity=1)
+    json_reporter = JsonFileReporter("results.json")
+    slack = SlackReporter(webhook_url="https://...")
+
+    # Pass all reporters to runner
+    runner = Runner(reporters=[console, json_reporter, slack])
+
+    # Run tests - all reporters receive events
+    result = await runner.run(path="tests/")
+
+    print(f"Results: {result.result.passed}/{result.result.total} passed")
+
+asyncio.run(main())
+```
+
+**Note:** Currently, only `ConsoleReporter` is built-in. Create custom reporters for JSON, HTML, database, or external service integration.
+
 ## Examples
 
 **Run smoke tests concurrently**:
@@ -299,6 +404,119 @@ maxfail = 10
 concurrency = 4
 addopts = ["--fail-fast"]
 ```
+
+## Database Persistence
+
+Merit automatically persists test run data to a SQLite database for historical tracking and analysis.
+
+### Database Location
+
+By default, Merit stores the database at the project root:
+
+```
+<project-root>/.merit/merit.db
+```
+
+The database location is determined by walking up from the current directory to find the first directory containing `pyproject.toml`.
+
+### Disabling Database Persistence
+
+To disable database writes (e.g., for CI environments or quick local runs):
+
+```bash
+merit test --no-db
+```
+
+### Custom Database Path
+
+Specify a custom database location:
+
+```bash
+merit test --db-path /path/to/custom/merit.db
+```
+
+Or configure in `pyproject.toml`:
+
+```toml
+[tool.merit]
+db-path = "/path/to/custom/merit.db"
+```
+
+### Database Management Commands
+
+Merit provides CLI commands to manage the database:
+
+#### Check Database Status
+
+View current schema version and pending migrations:
+
+```bash
+merit db status
+```
+
+**Output:**
+```
+Database: /Users/you/project/.merit/merit.db
+Current version: 1
+Target version: 1
+Status: Up to date
+```
+
+#### Run Migrations
+
+Apply pending schema migrations:
+
+```bash
+merit db migrate
+```
+
+**Dry run** (preview without applying):
+
+```bash
+merit db migrate --dry-run
+```
+
+#### Backup Database
+
+Create a timestamped backup:
+
+```bash
+merit db backup
+```
+
+Creates: `.merit/merit.db.backup.YYYYMMDD_HHMMSS`
+
+#### Reset Database
+
+Delete and recreate the database (destructive):
+
+```bash
+merit db reset --yes
+```
+
+Without `--yes`, Merit prints a warning and exits without resetting the database.
+
+### What's Stored
+
+The database stores:
+- Test run metadata (timestamp, environment, git info)
+- Individual test executions and results
+- Assertion results and predicate outcomes
+- Metric results and statistical data
+- Trace references (if tracing enabled)
+- Error tracebacks for failed tests
+
+### Database Schema
+
+The schema is versioned and managed through migrations. Current tables include:
+- `runs` - Test run sessions
+- `test_executions` - Individual test results
+- `metrics` - Aggregated metrics
+- `assertions` - Assertion outcomes
+- `predicates` - Predicate results linked to assertions
+- `trace_spans` - Trace spans linked to executions
+
+Schema version is stored in SQLite `PRAGMA user_version` (shown by `merit db status` as "Current version").
 
 <CardGroup cols={2}>
   <Card title="Writing Merits" icon="code" href="/usage/writing-merits">

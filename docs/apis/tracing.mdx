@@ -23,7 +23,7 @@ def init_tracing(
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `service_name` | `str` | `"merit"` | Service name in trace metadata |
-| `trace_content` | `bool \| None` | `None` | Whether to capture request/response content (defaults to `MERIT_TRACE_CONTENT` env var or `True`) |
+| `trace_content` | `bool \| None` | `None` | Content capture toggle. **Note:** today Merit uses `MERIT_TRACE_CONTENT` to control SUT span input/output attributes; `trace_content` is **not currently applied** to OpenAI/Anthropic client instrumentation. |
 | `output_path` | `Path \| str` | `".merit/traces.jsonl"` | File path for trace export |
 
 **Returns:** `None`
@@ -45,7 +45,6 @@ init_tracing()
 # Custom configuration
 init_tracing(
     service_name="my-ai-system",
-    trace_content=True,
     output_path="traces/run_001.jsonl"
 )
 
@@ -58,7 +57,7 @@ claude = Anthropic()  # All calls traced
 ```
 
 **Environment Variables:**
-- `MERIT_TRACE_CONTENT`: Set to `"false"` to disable content capture (defaults to `"true"`)
+- `MERIT_TRACE_CONTENT`: Set to `"false"` to avoid recording SUT input/output content (`sut.input.*`, `sut.output`). This does **not** currently guarantee LLM client instrumentation content is redacted.
 
 ---
 
@@ -115,6 +114,103 @@ def complex_pipeline():
 
         with trace_step("stage_3"):
             return process_stage_3(result_2)
+```
+
+---
+
+## Classes
+
+### TraceContext
+
+Provides access to trace data for the current test execution.
+
+**Injection:**
+
+`TraceContext` is automatically injected when a merit function declares `trace_context` as a parameter. It enables querying child spans, LLM calls, and setting custom attributes on the test span.
+
+**Properties:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `trace_id` | `str` | The trace ID for this test's span (32 hex characters) |
+| `span_id` | `str` | The span ID for this test's span (16 hex characters) |
+| `is_enabled` | `bool` | Whether tracing is currently enabled |
+
+**Methods:**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get_child_spans()` | `list[ReadableSpan]` | Get all spans created during this test's execution |
+| `get_llm_calls()` | `list[ReadableSpan]` | Get spans from LLM API calls (OpenAI, Anthropic) |
+| `get_sut_spans(name=None)` | `list[ReadableSpan]` | Get spans from `@merit.sut` decorated functions, optionally filtered by name |
+| `set_attribute(key, value)` | `None` | Set a custom attribute on the test span |
+
+**Example:**
+
+```python
+import merit
+
+@merit.sut
+def my_agent(prompt: str) -> str:
+    with merit.trace_step("retrieve"):
+        docs = retrieve_docs(prompt)
+
+    with merit.trace_step("generate"):
+        return generate_response(docs)
+
+def merit_agent_workflow(my_agent, trace_context):
+    """Use trace_context to assert on execution flow."""
+    result = my_agent("What is Python?")
+
+    # Set custom attributes on test span
+    trace_context.set_attribute("response.length", len(result))
+
+    # Get all child spans
+    all_spans = trace_context.get_child_spans()
+    assert len(all_spans) >= 2, "Expected at least 2 trace steps"
+
+    # Get SUT-specific spans
+    sut_spans = trace_context.get_sut_spans(name="my_agent")
+    assert len(sut_spans) == 1
+    assert sut_spans[0].name == "sut.my_agent"
+
+    # Get LLM calls (if any)
+    llm_calls = trace_context.get_llm_calls()
+    for call in llm_calls:
+        model = call.attributes.get("llm.model")
+        print(f"LLM call used model: {model}")
+
+    # Check trace IDs for correlation
+    print(f"Trace ID: {trace_context.trace_id}")
+    print(f"Span ID: {trace_context.span_id}")
+```
+
+**Filtering SUT Spans:**
+
+```python
+def merit_multiple_suts(agent_a, agent_b, trace_context):
+    """Filter SUT spans by name when multiple SUTs are used."""
+    result_a = agent_a("query 1")
+    result_b = agent_b("query 2")
+
+    # Get spans for specific SUT
+    agent_a_spans = trace_context.get_sut_spans(name="agent_a")
+    agent_b_spans = trace_context.get_sut_spans(name="agent_b")
+
+    assert len(agent_a_spans) == 1
+    assert len(agent_b_spans) == 1
+```
+
+**Conditional Logic Based on Tracing:**
+
+```python
+def merit_tracing_enabled_only(my_agent, trace_context):
+    """This test requires tracing (run with `merit test --trace`)."""
+    result = my_agent("test query")
+
+    spans = trace_context.get_child_spans()
+    assert len(spans) > 0, "Expected trace spans"
+    assert result is not None
 ```
 
 ---
@@ -217,6 +313,80 @@ set_trace_output_path("traces/experiment_2.jsonl")
 
 ---
 
+### get_span_collector
+
+Get the current span collector instance for accessing collected spans.
+
+**Signature:**
+```python
+def get_span_collector() -> InMemorySpanCollector | None
+```
+
+**Parameters:** None
+
+**Returns:** `InMemorySpanCollector | None` - The active span collector, or `None` if tracing is not enabled
+
+**Example:**
+```python
+from merit.tracing import get_span_collector
+
+def merit_advanced_tracing(my_agent, trace_context):
+    """Access raw OpenTelemetry spans for the current test (requires `--trace`)."""
+    result = my_agent("test query")
+
+    collector = get_span_collector()
+    if collector:
+        spans = collector.get_spans(trace_context.trace_id)
+        print(f"Total spans in this test trace: {len(spans)}")
+
+    assert result
+```
+
+**Note:** Most tests should use `trace_context` parameter instead, which provides a cleaner API scoped to the current test. `get_span_collector()` is useful for advanced scenarios requiring access to all spans.
+
+---
+
+### InMemorySpanCollector
+
+Internal class that collects and stores OpenTelemetry spans during test execution.
+
+**Purpose:** This is an advanced/internal API used by Merit's tracing system. Most users should use `TraceContext` instead.
+
+**Methods:**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get_spans(trace_id)` | `list[ReadableSpan]` | Get all spans for a specific trace ID |
+| `clear(trace_id)` | `None` | Clear spans for a specific trace ID |
+| `clear_all()` | `None` | Clear all collected spans |
+
+**Example:**
+```python
+from merit.tracing import get_span_collector
+
+def merit_inspect_current_trace(trace_context):
+    """Inspect raw spans for the current test (requires `--trace`)."""
+    collector = get_span_collector()
+    if not collector:
+        return
+
+    spans = collector.get_spans(trace_context.trace_id)
+    llm_spans = [s for s in spans if s.name.startswith(("openai.", "anthropic.", "gen_ai."))]
+    print(f"Total spans: {len(spans)}")
+    print(f"Total LLM spans: {len(llm_spans)}")
+```
+
+**When to use:**
+- Custom test runners or frameworks built on Merit
+- Advanced trace analysis across multiple tests
+- Performance profiling and debugging
+
+**When NOT to use:**
+- Regular test assertions (use `trace_context` parameter)
+- Single-test trace inspection (use `trace_context.get_child_spans()`)
+
+---
+
 ## Automatic Tracing
 
 ### LLM Client Instrumentation
@@ -227,7 +397,7 @@ When `init_tracing()` is called, Merit automatically instruments:
 
 All LLM calls are captured with:
 - Request parameters (model, temperature, messages, etc.)
-- Response content (if `trace_content=True`)
+- Response/content details depend on the underlying OpenTelemetry instrumentor configuration (Merit does not currently toggle this via `trace_content`)
 - Timing information
 - Token usage
 - Error details
@@ -379,15 +549,13 @@ with open("debug_traces.jsonl") as f:
     traces = [json.loads(line) for line in f]
 
 for trace in traces:
-    name = trace.get("name")
-    duration_ms = trace.get("duration_ms")
-    attributes = trace.get("attributes", {})
+    # Each line is an OpenTelemetry span serialized via `ReadableSpan.to_json()`.
+    name = trace.get("name", "<unknown>")
+    attributes = trace.get("attributes") or {}
 
-    print(f"{name}: {duration_ms}ms")
-
-    if "llm.model" in attributes:
+    print(name)
+    if isinstance(attributes, dict) and "llm.model" in attributes:
         print(f"  Model: {attributes['llm.model']}")
-        print(f"  Tokens: {attributes.get('llm.usage.total_tokens')}")
 ```
 
 ---
@@ -403,17 +571,15 @@ os.environ["MERIT_TRACE_CONTENT"] = "false"
 
 init_tracing()
 
-# Or set explicitly
-init_tracing(trace_content=False)
-
 # Now traces capture:
 # - Timing information
 # - Model names
 # - Token counts
 # - Parameter counts
 # But NOT:
-# - Actual messages/prompts
-# - Response content
+# - SUT input/output values (`sut.input.*`, `sut.output`)
+#
+# Note: Merit does not currently guarantee LLM client instrumentation content is redacted.
 ```
 
 ---
@@ -442,22 +608,20 @@ init_tracing(
 
 ## Trace File Format
 
-Traces are exported as JSONL (JSON Lines) where each line is a complete span:
+Traces are exported as JSONL (JSON Lines). Each line is a complete OpenTelemetry span serialized via `ReadableSpan.to_json()`.
+
+Because the exact shape can vary by OpenTelemetry version and installed instrumentations, inspect a line directly in your trace file.
+
+**Merit-added attributes to look for (may be absent when `MERIT_TRACE_CONTENT=false`):**
+- `merit.sut` / `merit.sut.name`
+- `sut.input.args` / `sut.input.kwargs` / `sut.input.count`
+- `sut.output` / `sut.output.type`
 
 ```json
 {
   "name": "sut.chatbot",
-  "trace_id": "a1b2c3d4...",
-  "span_id": "e5f6g7h8...",
-  "parent_span_id": "i9j0k1l2...",
-  "start_time": "2024-01-15T10:30:00.000Z",
-  "end_time": "2024-01-15T10:30:02.000Z",
-  "duration_ms": 2000,
   "attributes": {
-    "sut.input.args": "('Hello',)",
-    "sut.output": "Hi there! How can I help?",
-    "llm.model": "gpt-4",
-    "llm.usage.total_tokens": 25
+    "...": "span attributes (varies by instrumentation)"
   }
 }
 ```
@@ -470,11 +634,11 @@ Merit CLI automatically enables tracing when `--trace` flag is used:
 
 ```bash
 # Enable tracing
-merit run --trace
+merit test --trace
 
 # Custom output path
-merit run --trace --trace-output my_traces.jsonl
+merit test --trace --trace-output my_traces.jsonl
 
 # Disable content (only metadata)
-MERIT_TRACE_CONTENT=false merit run --trace
+MERIT_TRACE_CONTENT=false merit test --trace
 ```

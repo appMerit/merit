@@ -53,7 +53,7 @@
       },
       {
         "group": "Usage",
-        "pages": ["usage/writing-merits", "usage/running-merits", "usage/investigating-merits"]
+        "pages": ["usage/writing-merits", "usage/running-merits"]
       },
       {
         "group": "Concepts",
@@ -61,6 +61,7 @@
           "concepts/merit",
           "concepts/resource",
           "concepts/sut",
+          "concepts/trace",
           "concepts/case",
           "concepts/metric",
           "concepts/semantic-predicates"
