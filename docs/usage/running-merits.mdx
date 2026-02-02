@@ -308,17 +308,17 @@ import json
 
 class JsonFileReporter(Reporter):
     """Custom reporter that writes results to JSON file."""
-    
+
     def __init__(self, output_path: str):
         self.output_path = Path(output_path)
         self.results = []
-    
+
     async def on_no_tests_found(self) -> None:
         print("No tests found")
-    
+
     async def on_collection_complete(self, items: list[MeritTestDefinition]) -> None:
         print(f"Collected {len(items)} tests")
-    
+
     async def on_test_complete(self, execution: TestExecution) -> None:
         # Record each test result
         self.results.append({
@@ -327,7 +327,7 @@ class JsonFileReporter(Reporter):
             "duration_ms": execution.result.duration_ms,
             "passed": execution.status.value == "passed"
         })
-    
+
     async def on_run_complete(self, merit_run: MeritRun) -> None:
         # Write all results to JSON file
         output = {
@@ -338,13 +338,13 @@ class JsonFileReporter(Reporter):
             "duration_ms": merit_run.result.total_duration_ms,
             "tests": self.results
         }
-        
+
         self.output_path.write_text(json.dumps(output, indent=2))
         print(f"Results written to {self.output_path}")
-    
+
     async def on_run_stopped_early(self, failure_count: int) -> None:
         print(f"Run stopped after {failure_count} failures")
-    
+
     async def on_tracing_enabled(self, output_path: Path) -> None:
         print(f"Tracing enabled: {output_path}")
 ```
@@ -364,13 +364,13 @@ async def main():
     console = ConsoleReporter(verbosity=1)
     json_reporter = JsonFileReporter("results.json")
     slack = SlackReporter(webhook_url="https://...")
-    
+
     # Pass all reporters to runner
     runner = Runner(reporters=[console, json_reporter, slack])
-    
+
     # Run tests - all reporters receive events
     result = await runner.run(path="tests/")
-    
+
     print(f"Results: {result.result.passed}/{result.result.total} passed")
 
 asyncio.run(main())
@@ -417,7 +417,7 @@ By default, Merit stores the database at the project root:
 <project-root>/.merit/merit.db
 ```
 
-The database location is determined by walking up from the current directory to find the project root (identified by `.git`, `pyproject.toml`, or `setup.py`).
+The database location is determined by walking up from the current directory to find the first directory containing `pyproject.toml`.
 
 ### Disabling Database Persistence
 
@@ -494,7 +494,7 @@ Delete and recreate the database (destructive):
 merit db reset --yes
 ```
 
-Without `--yes`, you'll be prompted for confirmation.
+Without `--yes`, Merit prints a warning and exits without resetting the database.
 
 ### What's Stored
 
@@ -509,11 +509,14 @@ The database stores:
 ### Database Schema
 
 The schema is versioned and managed through migrations. Current tables include:
-- `merit_runs` - Test run sessions
+- `runs` - Test run sessions
 - `test_executions` - Individual test results
-- `assertion_results` - Assertion outcomes
-- `metric_results` - Aggregated metrics
-- `schema_version` - Migration tracking
+- `metrics` - Aggregated metrics
+- `assertions` - Assertion outcomes
+- `predicates` - Predicate results linked to assertions
+- `trace_spans` - Trace spans linked to executions
+
+Schema version is stored in SQLite `PRAGMA user_version` (shown by `merit db status` as "Current version").
 
 <CardGroup cols={2}>
   <Card title="Writing Merits" icon="code" href="/usage/writing-merits">
