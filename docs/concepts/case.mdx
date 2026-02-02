@@ -2,14 +2,13 @@
 title: "Case"
 ---
 
-`Case` is a container to store SUT inputs and reference values for assertions. Most developers use it when a single 'merit' function is iterated with more than 10 different cases.
+`Case` is a container for a single scenario: **inputs** you will pass to your System Under Test (SUT), plus optional **reference values** you’ll assert against.
 
 Using `Case` enables:
-- Validating inputs match your SUT's signature before running merits
-- Iterating a single merit function over multiple scenarios
-- Accessing reference values for assertions in a **typed way** with `Case[YourModel]`
-- Tagging and filtering cases dynamically
-
+- Iterating one merit function over many scenarios with `@merit.iter_cases(...)`
+- Keeping inputs in `sut_input_values` (to call `sut(**case.sut_input_values)`)
+- Storing reference data in `references` (typed or untyped)
+- Tagging and filtering with `tags`, and attaching context with `metadata`
 
 ## Basic Usage
 
@@ -17,140 +16,157 @@ Using `Case` enables:
 import merit
 from merit import Case
 
-from demo_app import agent
 
-# Define cases with inputs and references
+def classifier(text: str) -> str:
+    return "positive" if "love" in text.lower() else "negative"
+
+
 case1 = Case(
-    sut_input_values={"prompt": "What's the weather?"},
-    references={"expected_tool": "get_weather"},
-    tags={"weather", "tools"}
+    sut_input_values={"text": "I love this"},
+    references={"expected_label": "positive"},
+    tags={"smoke"},
 )
 
 case2 = Case(
-    sut_input_values={"prompt": "Tell me a joke"},
-    references={"tone_reference": "Two drums and a cymbal fell off a cliff. ...bud dum tiss"},
-    tags={"conversation"}
+    sut_input_values={"text": "This is bad"},
+    references={"expected_label": "negative"},
+    tags={"regression"},
 )
 
-# Run the same merit for each case
-@merit.iter_cases(case1, case2)
-def merit_agent_casual_tasks(case: Case, agent, trace_context):
-    result = agent(**case.sut_input_values)
 
-    # Retrieve spans
-    spans = trace_context.get_all_spans()
-
-    if case.references:
-        if expected_tool := case.references.get("expected_tool"):
-            used_tool = spans[1].attributes.get("llm.request.functions.0.name")
-            assert used_tool == expected_tool
-
-        if expected_tone := case.references.get("tone_reference"):
-            assert await matches_writing_style(result, expected_tone)
+@merit.iter_cases(*[c for c in (case1, case2) if "smoke" in c.tags])
+def merit_classifier(case: Case):
+    label = classifier(**case.sut_input_values)
+    assert label == case.references["expected_label"]
 ```
 
-## Loading Cases from External Sources
+## Case API
 
-When loading data from untrusted sources like JSON files or APIs, `Case` provides validation and type safety. Use typed references with `Case[YourModel]` to get IDE autocomplete and runtime validation.
+### Adding input values
+
+`sut_input_values` is a dictionary of keyword arguments that will be passed to your SUT:
 
 ```python
-import json
 from merit import Case
-from pydantic import BaseModel
 
-# Define a typed reference model for your evaluation expectations
+case = Case(sut_input_values={"prompt": "Hello"})
+```
+
+### Typed references
+
+Use `Case[YourModel]` to get IDE autocomplete and runtime validation of `references`.
+
+```python
+from pydantic import BaseModel
+from merit import Case
+
+
 class AgentReference(BaseModel):
     expected_keywords: list[str]
     min_response_length: int = 10
-    should_include_context: bool = True
 
-# Load cases from JSON
-with open("test_cases.json") as f:
-    raw_data = json.load(f)
 
-# Parse into typed Case objects
-cases: list[Case[AgentReference]] = [Case(**item) for item in raw_data]
-
-# Validate cases match your SUT's signature
-from merit.testing.case import validate_cases_for_sut
-
-def my_agent(prompt: str, context: str = "") -> str:
-    return f"Response to {prompt}"
-
-# Only keep valid cases, discard malformed ones
-valid_cases = validate_cases_for_sut(
-    cases,
-    sut=my_agent,
-    raise_on_invalid=False  # Skip invalid cases instead of failing
+case = Case[AgentReference](
+    sut_input_values={"prompt": "Say hello"},
+    references=AgentReference(
+        expected_keywords=["hello"], 
+        min_response_length=5
+        ),
 )
 
-@merit.iter_cases(*valid_cases)
-def merit_agent_with_validated_cases(case: Case[AgentReference], my_agent):
-    result = my_agent(**case.sut_input_values)
-
-    # Type-safe access to references with IDE autocomplete
-    if case.references:
-        assert len(result) >= case.references.min_response_length
-        for keyword in case.references.expected_keywords:
-            assert keyword.lower() in result.lower()
+assert case.references.min_response_length == 5
 ```
 
-## Filtering Cases
+### Untyped references
 
-Use native Python syntax to filter cases and create sublists based on tags, metadata, or reference values.
+The default `Case` uses untyped references (a dict) and `references` defaults to `{}`:
 
 ```python
 from merit import Case
-from pydantic import BaseModel
 
-# Define typed reference model
-class CalculationReference(BaseModel):
-    expected_result: int
-    tolerance: float = 0.0
+case = Case(
+    sut_input_values={"x": 2},
+    references={"expected": 4},
+)
 
-# Create typed cases
-all_cases: list[Case[CalculationReference]] = [
-    Case(
-        sut_input_values={"x": 1},
-        references=CalculationReference(expected_result=2),
-        tags={"smoke", "fast"}
-    ),
-    Case(
-        sut_input_values={"x": 2},
-        references=CalculationReference(expected_result=4),
-        tags={"regression"}
-    ),
-    Case(
-        sut_input_values={"x": 3},
-        references=CalculationReference(expected_result=6),
-        tags={"smoke"}
-    ),
-    Case(
-        sut_input_values={"x": 4},
-        references=CalculationReference(expected_result=8, tolerance=0.1),
-        metadata={"priority": "high"}
-    ),
+assert case.references["expected"] == 4
+```
+
+### Providing ID for persistence
+
+Each case has an `id: UUID` (auto-generated by default). Provide it explicitly when you want stable case IDs across runs or when you store cases in datasets.
+
+This matters because `@merit.iter_cases(...)` uses `case.id` to build readable, stable parametrization IDs.
+
+```python
+from uuid import UUID
+
+from merit import Case
+
+
+case = Case(
+    id=UUID("00000000-0000-0000-0000-000000000001"),
+    sut_input_values={"x": 1},
+)
+```
+
+### Adding metadata
+
+Use `metadata` for extra context and reporting. Values must be JSON-like primitives (`str | int | float | bool | None`).
+
+```python
+from merit import Case
+
+case = Case(
+    sut_input_values={"prompt": "Hello"},
+    metadata={"priority": "high", "latency_budget_ms": 200},
+)
+```
+
+### Adding tags for filtering
+
+Use `tags` to label cases and then select subsets with normal Python:
+
+```python
+from merit import Case
+
+cases = [
+    Case(sut_input_values={"x": 1}, tags={"smoke"}),
+    Case(sut_input_values={"x": 2}, tags={"regression"}),
 ]
 
-# Filter by tags
-smoke_cases = [c for c in all_cases if "smoke" in c.tags]
+smoke_cases = [c for c in cases if "smoke" in c.tags]
+```
 
-# Filter by metadata
-high_priority = [c for c in all_cases if c.metadata.get("priority") == "high"]
+### Validating cases for a SUT
 
-# Filter by reference values
-precise_cases = [c for c in all_cases if c.references and c.references.tolerance == 0.0]
+If cases come from files/APIs, validate them against your SUT’s signature before running:
 
-# Combine filters
-fast_smoke = [c for c in all_cases if "smoke" in c.tags and "fast" in c.tags]
+```python
+import merit
+from merit import Case, validate_cases_for_sut
 
-@merit.iter_cases(*smoke_cases)
-def merit_smoke_test(case: Case[CalculationReference], calculator):
-    result = calculator(**case.sut_input_values)
 
-    # Type-safe access to reference data
-    if case.references:
-        assert abs(result - case.references.expected_result) <= case.references.tolerance
+def my_agent(prompt: str, temperature: float = 0.7) -> str:
+    return f"{prompt} @ {temperature}"
+
+
+cases = [
+    Case(sut_input_values={"prompt": "Hello", "temperature": 0.5}),
+    Case(sut_input_values={"prompt": "Hi"}),
+    Case(sut_input_values={"invalid": "param"}),
+]
+
+# Fail fast (default)
+# validate_cases_for_sut(cases, my_agent)
+
+# Or filter invalid cases
+valid_cases = validate_cases_for_sut(cases, my_agent, raise_on_invalid=False)
+
+
+@merit.iter_cases(*valid_cases)
+def merit_my_agent(case: Case):
+    my_agent(**case.sut_input_values)
 ```
 
 ## Recommendations
@@ -174,71 +190,40 @@ def merit_simple(case, add_one):
 
 **Do this:**
 ```python
+import merit
+
 # For simple hardcoded data, use parametrize directly
 @merit.parametrize("x", [1, 2, 3, 4, 5])
 def merit_simple(x, add_one):
     result = add_one(x)
     assert result
-
-# OR use typed Case when loading from external sources
-import json
-from pydantic import BaseModel
-
-class MathReference(BaseModel):
-    expected_result: int
-    operation: str
-
-cases: list[Case[MathReference]] = [Case(**item) for item in json.load(open("cases.json"))]
-
-@merit.iter_cases(*cases)
-def merit_from_file(case: Case[MathReference], add_one):
-    result = add_one(**case.sut_input_values)
-
-    # Typed references provide validation and IDE support
-    if case.references:
-        assert result == case.references.expected_result
 ```
+
+When loading cases from JSON/APIs, prefer `Case[YourModel]` (typed `references`) and validate inputs up-front with `validate_cases_for_sut(...)`.
 
 ### 2. Use tags and metadata for dynamic case selection
 
-Structure your cases with typed references, tags, and metadata to enable flexible filtering without changing merit code.
+Structure your cases with tags and metadata to enable flexible selection without changing merit code.
 
 ```python
+import merit
 from merit import Case
-from pydantic import BaseModel
+import os
 
-# Define typed reference with validation thresholds
-class ProcessorReference(BaseModel):
-    min_output_length: int
-    max_latency_ms: int
-    expected_patterns: list[str] = []
-
-cases: list[Case[ProcessorReference]] = [
+cases = [
     Case(
         sut_input_values={"text": "short"},
-        references=ProcessorReference(
-            min_output_length=5,
-            max_latency_ms=100,
-            expected_patterns=["processed"]
-        ),
         tags={"smoke", "fast"},
         metadata={"execution_time_ms": 50}
     ),
     Case(
         sut_input_values={"text": "very long input" * 100},
-        references=ProcessorReference(
-            min_output_length=500,
-            max_latency_ms=10000,
-            expected_patterns=["processed", "chunked"]
-        ),
         tags={"regression", "slow"},
         metadata={"execution_time_ms": 5000}
     ),
 ]
 
 # Run different subsets based on context
-import os
-
 if os.getenv("CI_QUICK"):
     # Fast tests only in CI
     test_cases = [c for c in cases if "fast" in c.tags]
@@ -247,12 +232,6 @@ else:
     test_cases = cases
 
 @merit.iter_cases(*test_cases)
-def merit_text_processor(case: Case[ProcessorReference], processor):
-    result = processor(**case.sut_input_values)
-
-    # Type-safe assertions using references
-    if case.references:
-        assert len(result) >= case.references.min_output_length
-        for pattern in case.references.expected_patterns:
-            assert pattern in result
+def merit_text_processor(case: Case, processor):
+    processor(**case.sut_input_values)
 ```

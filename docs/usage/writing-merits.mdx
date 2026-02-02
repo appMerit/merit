@@ -6,21 +6,24 @@ Merit is intentionally “pytest-shaped”: you write plain Python, Merit discov
 
 This page focuses on **how to write merits** and (importantly) **where the behavior lives in the codebase**, so you can trust what’s happening.
 
-## If you know pytest, you already know 80%
+## TLDR - If you know pytest, you already know 80%
 
-The mental model maps almost 1:1:
-
-- **merit functions** ≈ pytest tests (`def merit_*(): ...`)
-- **resources** ≈ pytest fixtures (dependency injection by parameter name)
-- **parametrization** ≈ `@pytest.mark.parametrize`
-- **tags** ≈ pytest markers (filter from CLI)
-- **repeat** ≈ flaky-test reruns (but first-class)
-
-Merit adds a few AI-specific primitives (semantic predicates, metrics, traces), but you still write normal Python and normal `assert` statements.
+| pytest | merit |
+| --- | --- |
+| `def test_*(): ...` | `def merit_*(): ...` |
+| `@pytest.fixture` | `@merit.resource` |
+| `@pytest.mark.parametrize(...)` | `@merit.parametrize(...)` |
+| `@pytest.mark.skip(...)` | `@merit.tag.skip(...)` |
+| `@pytest.mark.xfail(...)` | `@merit.tag.xfail(...)` |
+| `@pytest.mark.repeat(3)` | `@merit.repeat(3)` |
 
 ## Merits
 
 Merit follows pytest-style discovery patterns to find merit functions in your codebase:
+
+<Info>
+  **Related docs**: [Merit (Concept)](/concepts/merit), [Testing (API)](/apis/testing)
+</Info>
 
 **Files**: Merit discovers Python files starting with `merit_`:
 - `merit_chatbot.py` ✓
@@ -48,9 +51,173 @@ class MeritCustomerSupport:     # ✓ Discovered
         pass
 ```
 
-See [Merit > Discovery](/concepts/merit#merit-discovery) for complete discovery rules.
+## Modifiers
 
-## Assert
+Modifiers are **decorators** that change how a merit is *collected* and/or *executed*. Some modifiers expand a single merit into many cases (like parametrization or dataset iteration), while others change execution semantics (like repeating a case, or marking it as skipped/xfail). Apply them to `merit_*` functions or `Merit*` classes.
+
+<Info>
+  **Related docs**: [Testing (API)](/apis/testing), [Case (Concept)](/concepts/case)
+</Info>
+
+**`@merit.parametrize(names, values)`** - Run the same merit with different inputs
+
+```python
+@merit.parametrize("model,temp", [("gpt-4", 0.7), ("claude-3", 0.5)])
+def merit_model_response(model: str, temp: float, chatbot):
+    response = chatbot.generate(model=model, temperature=temp)
+    assert response
+```
+
+**`@merit.iter_cases(*cases)`** - Iterate over `Case` objects from external sources
+
+```python
+import json
+from merit import Case
+
+cases = [Case(**item) for item in json.load(open("cases.json"))]
+
+@merit.iter_cases(*cases)
+def merit_from_dataset(case: Case, classifier):
+    result = classifier(**case.sut_input_values)
+    if case.references:
+        assert result == case.references["some_ref_value"]
+```
+
+**`@merit.tag(*tags)`** - Organize and filter merits by tags
+
+```python
+@merit.tag("smoke", "fast")
+def merit_health_check(api):
+    assert api.health_check()
+
+# Run: merit test --tag smoke
+```
+
+**`@merit.tag.skip(reason=...)`** - Skip merits unconditionally
+
+```python
+@merit.tag.skip(reason="Feature not implemented")
+def merit_upcoming():
+    pass
+
+@merit.tag.skip(reason="Requires API key")
+def merit_external_api():
+    pass
+```
+
+**`@merit.tag.xfail(reason=..., strict=False)`** - Mark merits expected to fail
+
+```python
+@merit.tag.xfail(reason="Known bug #123")
+def merit_known_issue():
+    assert False  # Won't fail the suite
+
+@merit.tag.xfail(reason="Should still fail", strict=True)
+def merit_strict():
+    pass  # If this passes, suite FAILS
+```
+
+**`@merit.repeat(n, min_passes=n)`** - Run merits multiple times to see if AI behavior is consistent
+
+```python
+@merit.repeat(10)  # All 10 must pass
+def merit_consistent(llm):
+    assert "hello" in llm.generate("Say hello")
+
+@merit.repeat(10, min_passes=8)  # 8 out of 10
+def merit_mostly_correct(llm):
+    assert "hola" in llm.generate("Say hello in Spanish")
+```
+
+## Resources
+
+Resources are the Merit equivalent of pytest fixtures: named, injectable dependencies that Merit resolves by parameter name.
+
+<Info>
+  **Related docs**: [Resource (Concept)](/concepts/resource), [Metric (Concept)](/concepts/metric), [SUT (Concept)](/concepts/sut), [Tracing (API)](/apis/tracing)
+</Info>
+
+**`@merit.resource(scope="case")`** - Define injectable dependencies with lifecycle management
+
+```python
+@merit.resource
+def database():
+    conn = connect_db()
+    yield conn  # Injected into merits
+    conn.close()  # Automatic cleanup
+
+@merit.resource(scope="session")
+def ml_model():
+    return load_model()  # Shared across entire run
+
+def merit_query(database, ml_model):
+    # Both injected automatically
+    result = database.query("SELECT 1")
+    prediction = ml_model.predict(result)
+    assert prediction
+```
+
+Scopes: `"case"` (default), `"suite"`, `"session"`.
+
+**`@merit.metric(scope="session")`** - Define a metric as a scoped, injectable measurement object
+
+Metrics behave like resources, but they’re intended to accumulate measurements across many cases and then assert on aggregates at the end of their scope.
+
+The most common pattern is to inject a `Metric` into your merits and use the `metrics(...)` context manager to record assertion outcomes into that metric.
+
+```python
+from merit import Metric, metrics
+
+@merit.metric
+def accuracy():
+    metric = Metric()
+    yield metric
+    assert metric.mean > 0.8  # Check after all data collected
+
+@merit.parametrize("input,expected", [("a", 1), ("b", 2)])
+def merit_classifier(input, expected, classifier, accuracy: Metric):
+    result = classifier(input)
+
+    # Assertions inside metrics() are recorded as True/False
+    with metrics(accuracy):
+        assert result == expected
+```
+
+Scopes: `"session"` (default), `"suite"`, `"case"`.
+
+**`@merit.sut`** - Register a System Under Test (SUT) as an injectable callable
+
+A SUT is the thing you’re actually evaluating (an agent function, a pipeline, a classifier, a client wrapper, etc.). Declaring it with `@merit.sut` makes it injectable and traceable, so you can assert not only on the output, but also on how it behaved internally (for example: tool calls).
+
+<Note>
+  A SUT must be **callable**. Merit will inject it into your merit function and you will call it like a normal function (or callable object).
+</Note>
+
+```python
+from demo_app import agent
+
+@merit.sut
+def weather_agent(prompt: str):
+    return agent(prompt, tools=["get_weather"])
+
+def merit_agent_uses_tools(weather_agent, trace_context):
+    result = weather_agent("What's the weather?")
+
+    # Access trace spans for assertions
+    sut_spans = trace_context.get_sut_spans(name="weather_agent")
+    assert sut_spans
+
+    # If you want to assert on tool calls, query LLM spans explicitly.
+    # Note: attribute keys come from OpenTelemetry LLM instrumentations.
+    tool_names = [
+        s.attributes.get("llm.request.functions.0.name")
+        for s in trace_context.get_llm_calls()
+        if s.attributes
+    ]
+    assert "get_weather" in tool_names
+```
+
+## Custom Assert
 
 Merit transforms Python's `assert` keyword to provide richer testing capabilities for AI systems. When you run merit files through Merit's runner, assertions behave differently than standard Python.
 
@@ -72,7 +239,7 @@ All three assertions will be evaluated and reported, even if the first one fails
 To stop on the first failure, use the `--fail-fast` CLI flag:
 
 ```bash
-merit run --fail-fast
+merit test --fail-fast
 ```
 
 ### Integration with metrics
@@ -102,9 +269,9 @@ def merit_classifier(input, expected, classifier, accuracy: Metric):
 **Important:** Merit's assertion transformation only applies when you run files through Merit's test runner:
 
 ```bash
-merit run merit_my_tests.py    # ✓ Transformed assertions
-python merit_my_tests.py        # ✗ Standard Python behavior
-uv run merit_my_tests.py        # ✗ Standard Python behavior
+merit test merit_my_tests.py    # ✓ Transformed assertions
+python merit_my_tests.py         # ✗ Standard Python behavior
+uv run merit_my_tests.py         # ✗ Standard Python behavior
 ```
 
 ### Assert messages
@@ -117,168 +284,6 @@ def merit_validation(response):
     assert "error" not in response.body, "Response contains error"
 ```
 
-
-## Decorators
-
-Decorators are Merit's most important pattern for controlling merit execution and defining injectable components. They follow pytest conventions while adding AI-specific capabilities.
-
-### Adjust execution behavior
-
-These decorators modify how merit functions execute. Apply them to `merit_*` functions or `Merit*` classes.
-
-**`@merit.parametrize(names, values)`** - Run the same merit with different inputs
-
-```python
-@merit.parametrize("model,temp", [("gpt-4", 0.7), ("claude-3", 0.5)])
-def merit_model_response(model: str, temp: float, chatbot):
-    response = chatbot.generate(model=model, temperature=temp)
-    assert response
-```
-
-See [Merit > Parametrization](/concepts/merit#parametrization) for details.
-
-**`@merit.iter_cases(*cases)`** - Iterate over `Case` objects from external sources
-
-```python
-import json
-from merit import Case
-
-cases = [Case(**item) for item in json.load(open("cases.json"))]
-
-@merit.iter_cases(*cases)
-def merit_from_dataset(case: Case, classifier):
-    result = classifier(**case.sut_input_values)
-    if case.references:
-        assert result == case.references["some_ref_value"]
-```
-
-See [Case](/concepts/case) for typed references and validation.
-
-**`@merit.tag(*tags)`** - Organize and filter merits by tags
-
-```python
-@merit.tag("smoke", "fast")
-def merit_health_check(api):
-    assert api.health_check()
-
-# Run: merit run --tag smoke
-```
-
-See [Merit > Organizing Merits with Tags](/concepts/merit#organizing-merits-with-tags).
-
-**`@merit.skip(reason, when=...)`** - Skip merits conditionally
-
-```python
-@merit.skip("Feature not implemented")
-def merit_upcoming():
-    pass
-
-@merit.skip("Requires API key", when=lambda: not os.getenv("API_KEY"))
-def merit_external_api():
-    pass
-```
-
-See [Merit > Conditional Execution](/concepts/merit#conditional-execution).
-
-**`@merit.xfail(reason, strict=False)`** - Mark merits expected to fail
-
-```python
-@merit.xfail("Known bug #123")
-def merit_known_issue():
-    assert False  # Won't fail the suite
-
-@merit.xfail("Should still fail", strict=True)
-def merit_strict():
-    pass  # If this passes, suite FAILS
-```
-
-See [Merit > Conditional Execution](/concepts/merit#conditional-execution).
-
-**`@merit.repeat(n, min_passes=n)`** - Run merits multiple times for reliability
-
-```python
-@merit.repeat(10)  # All 10 must pass
-def merit_consistent(llm):
-    assert "hello" in llm.generate("Say hello")
-
-@merit.repeat(10, min_passes=8)  # 8 out of 10
-def merit_mostly_correct(llm):
-    assert "hola" in llm.generate("Say hello in Spanish")
-```
-
-See [Merit > Reliability Evaluation with Repeat](/concepts/merit#reliability-evaluation-with-repeat).
-
-### Define components to inject
-
-These decorators define resources that Merit injects into merit functions by parameter name.
-
-**`@merit.resource(scope="case")`** - Define injectable dependencies with lifecycle management
-
-```python
-@merit.resource
-def database():
-    conn = connect_db()
-    yield conn  # Injected into merits
-    conn.close()  # Automatic cleanup
-
-@merit.resource(scope="session")
-def ml_model():
-    return load_model()  # Shared across entire run
-
-def merit_query(database, ml_model):
-    # Both injected automatically
-    result = database.query("SELECT 1")
-    prediction = ml_model.predict(result)
-    assert prediction
-```
-
-Scopes: `"case"` (default), `"suite"`, `"session"`.
-
-See [Resource](/concepts/resource) for lifecycle hooks and stacking.
-
-**`@merit.metric(scope="session")`** - Define metrics that track data across merits
-
-```python
-from merit import Metric, metrics
-
-@merit.metric
-def accuracy():
-    metric = Metric()
-    yield metric
-    assert metric.mean > 0.8  # Check after all data collected
-
-@merit.parametrize("input,expected", [("a", 1), ("b", 2)])
-def merit_classifier(input, expected, classifier, accuracy: Metric):
-    result = classifier(input)
-
-    # Assertions inside metrics() are recorded as True/False
-    with metrics(accuracy):
-        assert result == expected
-```
-
-Scopes: `"session"` (default), `"suite"`, `"case"`.
-
-See [Metric](/concepts/metric) for statistical properties and composite metrics.
-
-**`@merit.sut`** - Mark systems under test (optional, enables trace access)
-
-```python
-from demo_app import agent
-
-@merit.sut
-def weather_agent(prompt: str):
-    return agent(prompt, tools=['get_weather'])
-
-def merit_agent_uses_tools(weather_agent, trace_context):
-    result = weather_agent("What's the weather?")
-
-    # Access trace spans for assertions
-    spans = trace_context.get_sut_spans(weather_agent)
-    tool_name = spans[1].attributes.get("llm.request.functions.0.name")
-    assert tool_name == "get_weather"
-```
-
-See [SUT](/concepts/sut) for trace assertions and best practices.
 
 <CardGroup cols={2}>
   <Card title="Merit Functions (Concept)" icon="code" href="/concepts/merit">

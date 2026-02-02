@@ -55,20 +55,18 @@ This is why a single passing test is weak evidence for AI behavior: you need rep
 
 | Capability | Evals | Tests | Merit |
 |------------|-------|-------|-------|
-| Explicit behavioral assertions | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
-| Statistical metrics (mean, p95, CI) | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
-| Semantic understanding | <Badge icon="ban" color="red">No</Badge> | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
-| Dataset abstractions | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
-| Run same test N times | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
-| Policy/constraint checking | <Badge icon="ban" color="red">No</Badge> | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
-| Deterministic code support | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
-| Dependency injection | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
+| Native Python syntax | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
+| Explicit test logic | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
+| Cases in datasets | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
+| Metrics aggregations | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
+| Determinism checks | <Badge icon="clock" color="orange">Partial</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
+| LLM-as-a-Judge | <Badge icon="clock" color="orange">Partial</Badge> | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
 | CI/CD integration | <Badge icon="clock" color="orange">Partial</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
-| Actionable failure reports | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
+| Historical data | <Badge icon="clock" color="orange">Partial</Badge> | <Badge icon="ban" color="red">No</Badge> | <Badge icon="circle-check" color="green">Yes</Badge> |
 
-### Semantic Predicates: Assert meaning, not strings
+### AI Predicates: Assert meaning, not strings
 
-Merit's [semantic predicates](/concepts/semantic-predicates) let you assert on meaning:
+Merit's [AI predicates](/concepts/semantic-predicates) let you assert on complex properties:
 
 ```python
 from merit.predicates import has_unsupported_facts, follows_policy

@@ -83,10 +83,13 @@ async def merit_chatbot_no_hallucinations(
 
     # Verify tool was called when expected
     if expected_tool := case.references.expected_tool:
-        spans = trace_context.get_sut_spans(store_chatbot)
-        tool_called = spans[1].attributes.get("llm.request.functions.0.name")
-
-        assert tool_called == expected_tool
+        sut_spans = trace_context.get_sut_spans(name="store_chatbot")
+        tool_names = [
+            s.attributes.get("llm.request.functions.0.name")
+            for s in trace_context.get_llm_calls()
+            if s.attributes
+        ]
+        assert expected_tool in tool_names
 ```
 
 Run it:
