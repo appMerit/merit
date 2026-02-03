@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/appMerit/merit/discussions
+    about: Use Discussions for Q&A, usage help, and open-ended ideas.
+  - name: Documentation
+    url: https://docs.appmerit.com
+    about: Check the docs for usage and API guidance.
+  - name: Security report (private)
+    url: mailto:support@appmerit.com?subject=Security%20Report%3A%20Merit
+    about: Do not open public issues for vulnerabilities. Please report security vulnerabilities to support@appmerit.com

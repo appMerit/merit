@@ -313,6 +313,28 @@ Before submitting, ensure:
 
 ## Reporting Issues
 
+We use **GitHub Discussions first** for questions, troubleshooting, and open-ended ideas:
+- https://github.com/appMerit/merit/discussions
+
+We use GitHub Issue Forms for actionable work items.
+Please choose the matching form when opening an issue:
+
+- **Bug report** - Reproducible defects and regressions
+- **Feature request** - New capabilities or API improvements
+
+### Before Opening an Issue
+
+- Search for existing issues first
+- Confirm you are on the latest Merit release
+- Include a minimal reproducible example where possible
+- If it is a usage/help question, open a Discussion instead of an Issue
+
+### Security Issues
+
+Please **do not** report vulnerabilities in public issues.
+Report security concerns privately at `support@appmerit.com` with subject:
+`Security Report: Merit`.
+
 ### Bug Reports
 
 When reporting bugs, include:
@@ -351,7 +373,7 @@ We welcome contributions in these areas:
 ## Questions?
 
 - **Documentation**: [docs.appmerit.com](https://docs.appmerit.com)
-- **GitHub Issues**: [github.com/appMerit/merit/issues](https://github.com/appMerit/merit/issues)
+- **GitHub Discussions**: [github.com/appMerit/merit/discussions](https://github.com/appMerit/merit/discussions)
 - **Email**: support@appmerit.com
 
 ---

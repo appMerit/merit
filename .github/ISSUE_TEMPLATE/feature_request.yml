@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest an idea to improve Merit.
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For broad brainstorming, start in Discussions.
+        Use this form for concrete, actionable feature requests.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What are you trying to do that is hard today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the API or behavior you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds or alternative approaches?
+  - type: textarea
+    id: examples
+    attributes:
+      label: Usage examples
+      description: Show how this would be used in real projects.
+      render: python
