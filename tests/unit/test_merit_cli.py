@@ -287,7 +287,10 @@ async def test_run_tests_keeps_normal_exit_code_when_run_id_is_unique(monkeypatc
     args = parser.parse_args(["test", "--run-id", str(uuid4()), "--no-db"])
     config = _make_cli_config()
 
-    monkeypatch.setattr("merit.cli._collect_items", lambda _paths: [make_item("merit_ok", set())])
+    monkeypatch.setattr(
+        "merit.cli._collect_items",
+        lambda _paths, _include_tags, _exclude_tags, _keyword: [make_item("merit_ok", set())],
+    )
 
     exit_code = await _run_tests(args, config)
     assert exit_code == 0

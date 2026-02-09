@@ -415,13 +415,6 @@ async def _run_tests(args: argparse.Namespace, config: MeritConfig) -> int:
         save_to_db = False
 
     reporters = _resolve_reporters(args, config, verbosity)
-
-    try:
-        items = _collect_items(paths, include_tags, exclude_tags, keyword)
-    except ValueError as exc:
-        Console().print(f"[red]{exc}[/red]")
-        return 2
-
     runner = Runner(
         reporters=reporters,
         maxfail=maxfail,
@@ -440,9 +433,8 @@ async def _run_tests(args: argparse.Namespace, config: MeritConfig) -> int:
         Console().print(f"[red]run_id '{args.run_id}' already exists[/red]")
         return 2
 
-    items = _collect_items(paths)
     try:
-        items = _filter_items(items, include_tags, exclude_tags, keyword)
+        items = _collect_items(paths, include_tags, exclude_tags, keyword)
     except ValueError as exc:
         Console().print(f"[red]{exc}[/red]")
         return 2
