@@ -418,6 +418,75 @@ def temp_dir():
 
 ---
 
+### Runner
+
+Execute discovered merits and return a `MeritRun`.
+
+**Signature:**
+```python
+class Runner:
+    def __init__(
+        self,
+        *,
+        reporters: list[Reporter],
+        maxfail: int | None = None,
+        fail_fast: bool = False,
+        verbosity: int = 0,
+        concurrency: int = 1,
+        timeout: float | None = None,
+        enable_tracing: bool = False,
+        trace_output: Path | str | None = None,
+        capture_output: bool = True,
+        save_to_db: bool = True,
+        db_path: Path | str | None = None,
+        run_id: UUID | str | None = None,
+    ) -> None: ...
+
+    async def run(
+        self,
+        items: list[MeritTestDefinition] | None = None,
+        path: str | None = None,
+        run_id: UUID | str | None = None,
+    ) -> MeritRun: ...
+
+    def run_id_exists(self, run_id: UUID | str) -> bool: ...
+```
+
+**Run UUID behavior:**
+- `run_id` accepts either a `UUID` object or UUID string.
+- `run()` `run_id` overrides constructor `run_id`.
+- If neither is provided, Merit auto-generates a new UUID.
+- If `save_to_db=True` and the selected run UUID already exists, `run()` raises `ValueError`.
+- `run_id_exists()` can be used as a preflight check before execution.
+
+**Example:**
+```python
+from uuid import UUID
+
+from merit.reports import ConsoleReporter
+from merit.testing import Runner
+
+runner = Runner(
+    reporters=[ConsoleReporter()],
+    db_path=".merit/merit.db",
+    run_id=UUID("00000000-0000-0000-0000-000000000001"),
+)
+
+if runner.run_id_exists("00000000-0000-0000-0000-000000000001"):
+    raise ValueError("run_id already exists")
+
+# Uses constructor run_id
+result = await runner.run(path="tests/")
+
+# Overrides constructor run_id for this run only
+result = await runner.run(
+    path="tests/",
+    run_id="00000000-0000-0000-0000-000000000002",
+)
+```
+
+---
+
 ## Functions
 
 ### Imperative Outcome Control
