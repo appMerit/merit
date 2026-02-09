@@ -98,6 +98,12 @@ Run it:
 merit test --trace
 ```
 
+Use a custom run UUID when you need stable correlation IDs:
+
+```bash
+merit test --trace --run-id 3f5f5e9a-1c2d-4b5f-9c2b-7f6d8a9b0c1d
+```
+
 Output:
 
 ```
