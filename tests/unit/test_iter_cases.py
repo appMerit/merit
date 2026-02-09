@@ -78,3 +78,15 @@ def test_iter_cases_decorator():
     # Check that IDs are correctly set from case IDs
     assert param_sets[0].id_suffix == str(cases[0].id)
     assert param_sets[1].id_suffix == str(cases[1].id)
+
+
+def test_iter_cases_empty_is_deferred_to_execution():
+    @iter_cases()
+    def my_test(case):
+        pass
+
+    modifiers = getattr(my_test, "__merit_modifiers__", [])
+    assert modifiers == []
+    assert getattr(my_test, "__merit_definition_error__", None) == (
+        "parametrize() requires at least one value set"
+    )

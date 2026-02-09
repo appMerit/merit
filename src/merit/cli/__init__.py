@@ -10,6 +10,7 @@ import sys
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol, TypeVar
 
 from rich.console import Console
 
@@ -18,11 +19,24 @@ from merit.reports import Reporter, resolve_reporters
 from merit.storage.sqlite.migrations import MigrationRunner
 from merit.storage.sqlite.store import DEFAULT_DB_NAME, MAX_STORED_RUNS, find_project_root
 from merit.testing import MeritTestDefinition, collect
+from merit.testing.discovery import StaticTestReference, collect_static
 from merit.testing.runner import Runner
 
 
 # Backwards compatibility alias
 TestItem = MeritTestDefinition
+
+
+class Filterable(Protocol):
+    """Minimal interface needed by filtering logic."""
+
+    tags: set[str] | frozenset[str]
+
+    @property
+    def full_name(self) -> str: ...
+
+
+FilterableT = TypeVar("FilterableT", bound=Filterable)
 
 
 def main() -> None:
@@ -335,20 +349,36 @@ def _resolve_reporters(
     return resolve_reporters(reporter_names, options)
 
 
-def _collect_items(paths: Sequence[str]) -> list[TestItem]:
-    items: list[TestItem] = []
-    for path in paths:
-        items.extend(collect(path))
-    return items
-
-
-def _filter_items(
-    items: list[TestItem],
+def _collect_items(
+    paths: Sequence[str],
     include_tags: Sequence[str],
     exclude_tags: Sequence[str],
     keyword: str | None,
 ) -> list[TestItem]:
-    filtered = items
+    static_refs: list[StaticTestReference] = []
+    for path in paths:
+        static_refs.extend(collect_static(path))
+
+    selected_refs = _filter_items(static_refs, include_tags, exclude_tags, keyword)
+    if not selected_refs:
+        return []
+
+    selected_paths = sorted({ref.module_path for ref in selected_refs})
+
+    items: list[TestItem] = []
+    for module_path in selected_paths:
+        items.extend(collect(module_path))
+
+    return _filter_items(items, include_tags, exclude_tags, keyword)
+
+
+def _filter_items(
+    items: Sequence[FilterableT],
+    include_tags: Sequence[str],
+    exclude_tags: Sequence[str],
+    keyword: str | None,
+) -> list[FilterableT]:
+    filtered = list(items)
 
     if include_tags:
         include = set(include_tags)
@@ -380,9 +410,8 @@ async def _run_tests(args: argparse.Namespace, config: MeritConfig) -> int:
 
     reporters = _resolve_reporters(args, config, verbosity)
 
-    items = _collect_items(paths)
     try:
-        items = _filter_items(items, include_tags, exclude_tags, keyword)
+        items = _collect_items(paths, include_tags, exclude_tags, keyword)
     except ValueError as exc:
         Console().print(f"[red]{exc}[/red]")
         return 2

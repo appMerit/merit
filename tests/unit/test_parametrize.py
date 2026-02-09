@@ -35,6 +35,18 @@ def test_parametrize_stacking_creates_multiple_modifiers():
     assert modifiers[1].parameter_sets[0].values == {"value": 1}
 
 
+def test_parametrize_invalid_inputs_are_deferred_to_execution():
+    @parametrize("value", [])
+    def sample(value):
+        return value
+
+    modifiers = getattr(sample, "__merit_modifiers__", [])
+    assert modifiers == []
+    assert getattr(sample, "__merit_definition_error__", None) == (
+        "parametrize() requires at least one value set"
+    )
+
+
 def test_runner_applies_parameter_values(null_reporter):
     recorded = {}
 
@@ -108,3 +120,27 @@ def test_runner_runs_all_parameter_sets(null_reporter):
     assert run_result.result.passed == 1
     assert run_result.result.executions[0].sub_executions is not None
     assert len(run_result.result.executions[0].sub_executions) == 3
+
+
+def test_runner_reports_invalid_parametrize_as_error(null_reporter):
+    @parametrize("value", [])
+    def merit_invalid(value):
+        return value
+
+    modifiers = getattr(merit_invalid, "__merit_modifiers__", [])
+    definition_error = getattr(merit_invalid, "__merit_definition_error__", None)
+
+    item = TestItem(
+        name="merit_invalid",
+        fn=merit_invalid,
+        module_path=Path("sample.py"),
+        is_async=False,
+        params=["value"],
+        modifiers=modifiers,
+        definition_error=definition_error,
+    )
+
+    run_result = asyncio.run(Runner(reporters=[null_reporter]).run(items=[item]))
+
+    assert run_result.result.errors == 1
+    assert "requires at least one value set" in str(run_result.result.executions[0].result.error)

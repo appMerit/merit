@@ -27,6 +27,7 @@ class MeritTestDefinition:
     skip_reason: str | None = None
     xfail_reason: str | None = None
     xfail_strict: bool = False
+    definition_error: str | None = None
     fail_fast: bool = False
     id_suffix: str | None = None
 

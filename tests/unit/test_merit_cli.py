@@ -1,10 +1,11 @@
 from argparse import Namespace
 from pathlib import Path
+from textwrap import dedent
 
-from merit.cli import KeywordMatcher, _filter_items, _resolve_reporters
+from merit.cli import KeywordMatcher, _collect_items, _filter_items, _resolve_reporters
 from merit.config import DEFAULT_CONFIG, MeritConfig
 from merit.reports import ConsoleReporter
-from merit.testing.discovery import TestItem
+from merit.testing.discovery import TestItem, collect_static
 
 
 def dummy() -> None:  # Helper for TestItem.fn
@@ -44,6 +45,102 @@ def test_filter_items_applies_tag_logic():
 
     filtered = _filter_items(items, include_tags=[], exclude_tags=[], keyword="slow")
     assert [item.name for item in filtered] == ["merit_slow"]
+
+
+def test_collect_static_extracts_names_and_tags(tmp_path):
+    module_path = tmp_path / "merit_sample.py"
+    module_path.write_text(
+        dedent(
+            """
+            import merit
+            from merit import tag
+
+            @tag("smoke")
+            def merit_top():
+                pass
+
+            @merit.tag("suite")
+            class MeritFlows:
+                @tag("fast")
+                def merit_nested(self):
+                    pass
+            """
+        )
+    )
+
+    refs = collect_static(module_path)
+    refs_by_name = {ref.full_name: ref for ref in refs}
+
+    assert "merit_sample::merit_top" in refs_by_name
+    assert refs_by_name["merit_sample::merit_top"].tags == frozenset({"smoke"})
+
+    assert "merit_sample::MeritFlows::merit_nested" in refs_by_name
+    assert refs_by_name["merit_sample::MeritFlows::merit_nested"].tags == frozenset(
+        {"suite", "fast"}
+    )
+
+
+def test_collect_items_keyword_avoids_importing_unselected_modules(tmp_path):
+    good_module = tmp_path / "merit_good.py"
+    good_module.write_text(
+        dedent(
+            """
+            def merit_good():
+                assert True
+            """
+        )
+    )
+
+    bad_module = tmp_path / "merit_bad.py"
+    bad_module.write_text(
+        dedent(
+            """
+            raise RuntimeError("must not import")
+
+            def merit_bad():
+                pass
+            """
+        )
+    )
+
+    items = _collect_items(
+        paths=[str(tmp_path)],
+        include_tags=[],
+        exclude_tags=[],
+        keyword="good",
+    )
+
+    assert len(items) == 1
+    assert items[0].name == "merit_good"
+
+
+def test_collect_items_same_file_ignores_unselected_invalid_test(tmp_path):
+    mixed_module = tmp_path / "merit_mixed.py"
+    mixed_module.write_text(
+        dedent(
+            """
+            import merit
+            from merit import iter_cases
+
+            def merit_good():
+                assert True
+
+            @iter_cases()
+            def merit_bad(case):
+                assert case
+            """
+        )
+    )
+
+    items = _collect_items(
+        paths=[str(tmp_path)],
+        include_tags=[],
+        exclude_tags=[],
+        keyword="good",
+    )
+
+    assert len(items) == 1
+    assert items[0].name == "merit_good"
 
 
 class TestResolveReporters:

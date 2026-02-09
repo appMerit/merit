@@ -234,6 +234,17 @@ class Runner:
         self, item: MeritTestDefinition, resolver: ResourceResolver
     ) -> TestExecution:
         """Execute a single test with error handling."""
+        if item.definition_error:
+            return TestExecution(
+                definition=item,
+                result=TestResult(
+                    status=TestStatus.ERROR,
+                    duration_ms=0,
+                    error=ValueError(item.definition_error),
+                ),
+                execution_id=uuid4(),
+            )
+
         test = self._factory.build(item)
         t_start = time.perf_counter()
 
