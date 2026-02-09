@@ -4,6 +4,7 @@ import asyncio
 import os
 from pathlib import Path
 from unittest.mock import patch
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -247,6 +248,72 @@ class TestRunner:
         result = await runner.run(items=[item])
 
         assert result.result.failed == 1
+
+
+class TestRunId:
+    @pytest.mark.asyncio
+    async def test_constructor_run_id_used_when_run_id_not_passed(self, null_reporter):
+        run_id = uuid4()
+        runner = Runner(reporters=[null_reporter], run_id=run_id, save_to_db=False)
+
+        result = await runner.run(items=[make_item(lambda: None)])
+
+        assert result.run_id == run_id
+
+    @pytest.mark.asyncio
+    async def test_run_run_id_overrides_constructor_run_id(self, null_reporter):
+        constructor_run_id = uuid4()
+        run_level_run_id = uuid4()
+        runner = Runner(reporters=[null_reporter], run_id=constructor_run_id, save_to_db=False)
+
+        result = await runner.run(items=[make_item(lambda: None)], run_id=run_level_run_id)
+
+        assert result.run_id == run_level_run_id
+
+    @pytest.mark.asyncio
+    async def test_run_id_string_is_accepted_and_normalized(self, null_reporter):
+        run_id = uuid4()
+        runner = Runner(reporters=[null_reporter], run_id=str(run_id), save_to_db=False)
+
+        result = await runner.run(items=[make_item(lambda: None)])
+
+        assert isinstance(result.run_id, UUID)
+        assert result.run_id == run_id
+
+    def test_invalid_constructor_run_id_raises_value_error(self, null_reporter):
+        with pytest.raises(ValueError, match="Invalid run_id"):
+            Runner(reporters=[null_reporter], run_id="not-a-uuid", save_to_db=False)
+
+    @pytest.mark.asyncio
+    async def test_invalid_run_level_run_id_raises_value_error(self, null_reporter):
+        runner = Runner(reporters=[null_reporter], save_to_db=False)
+
+        with pytest.raises(ValueError, match="Invalid run_id"):
+            await runner.run(items=[make_item(lambda: None)], run_id="not-a-uuid")
+
+    @pytest.mark.asyncio
+    async def test_reused_constructor_run_id_fails_on_second_run_when_db_enabled(
+        self, null_reporter, tmp_path: Path
+    ):
+        run_id = uuid4()
+        runner = Runner(reporters=[null_reporter], db_path=tmp_path / "merit.db", run_id=run_id)
+
+        first_result = await runner.run(items=[make_item(lambda: None)])
+        assert first_result.run_id == run_id
+
+        with pytest.raises(ValueError, match="already exists"):
+            await runner.run(items=[make_item(lambda: None)])
+
+    @pytest.mark.asyncio
+    async def test_reused_constructor_run_id_allowed_when_db_disabled(self, null_reporter):
+        run_id = uuid4()
+        runner = Runner(reporters=[null_reporter], run_id=run_id, save_to_db=False)
+
+        first_result = await runner.run(items=[make_item(lambda: None)])
+        second_result = await runner.run(items=[make_item(lambda: None)])
+
+        assert first_result.run_id == run_id
+        assert second_result.run_id == run_id
 
 
 class TestResourceInjection:

@@ -176,6 +176,52 @@ merit test --trace --trace-output my-traces.jsonl
 
 See [SUT](/concepts/sut) for trace assertions.
 
+## Custom Run UUID
+
+By default, Merit generates a run UUID automatically. You can provide one explicitly when you
+need a stable external correlation ID (for example, linking CI jobs to Merit runs).
+
+### CLI
+
+Provide a UUID with `--run-id`:
+
+```bash
+merit test --run-id 3f5f5e9a-1c2d-4b5f-9c2b-7f6d8a9b0c1d
+```
+
+If that UUID already exists in the configured SQLite database, the command exits with code `2`
+and no tests are executed.
+
+### Python API
+
+You can set a default run UUID on the runner, and override it per `run()` call:
+
+```python
+from uuid import UUID
+from merit.reports import ConsoleReporter
+from merit.testing import Runner
+
+runner = Runner(
+    reporters=[ConsoleReporter()],
+    run_id=UUID("00000000-0000-0000-0000-000000000001"),
+)
+
+# Uses constructor run_id
+await runner.run(path="tests/")
+
+# Overrides constructor run_id for this run only
+await runner.run(
+    path="tests/",
+    run_id="00000000-0000-0000-0000-000000000002",
+)
+```
+
+Run IDs are currently configured only via CLI `--run-id` or Python API parameters. They are not
+read from `pyproject.toml`, `merit.toml`, or environment variables.
+
+If `save_to_db=True` and the selected run UUID already exists, `Runner.run()` raises
+`ValueError`.
+
 ## Configuration Files
 
 Define default options in `pyproject.toml` or `merit.toml`:
@@ -238,7 +284,7 @@ Use `-v` to show per-test lines with durations and detailed sub-results.
 **Exit codes**:
 - `0`: All tests passed (or only skipped/xfailed)
 - `1`: At least one test failed or errored
-- `2`: Invalid CLI usage or configuration error
+- `2`: Invalid CLI usage or configuration error (including duplicate `--run-id`)
 
 ### Repeated Tests
 

@@ -1,11 +1,23 @@
 from argparse import Namespace
 from pathlib import Path
 from textwrap import dedent
+from uuid import uuid4
 
-from merit.cli import KeywordMatcher, _collect_items, _filter_items, _resolve_reporters
+import pytest
+
+from merit.cli import (
+    KeywordMatcher,
+    _build_parser,
+    _collect_items,
+    _filter_items,
+    _resolve_reporters,
+    _run_tests,
+)
 from merit.config import DEFAULT_CONFIG, MeritConfig
 from merit.reports import ConsoleReporter
+from merit.storage.sqlite import SQLiteStore
 from merit.testing.discovery import TestItem, collect_static
+from merit.testing.models.run import MeritRun, RunEnvironment, RunResult
 
 
 def dummy() -> None:  # Helper for TestItem.fn
@@ -207,3 +219,75 @@ class TestResolveReporters:
         config = self._make_config()
         reporters = _resolve_reporters(args, config, verbosity=2)
         assert reporters[0].verbosity == 2
+
+
+def _make_cli_config() -> MeritConfig:
+    return MeritConfig(
+        test_paths=list(DEFAULT_CONFIG.test_paths),
+        include_tags=list(DEFAULT_CONFIG.include_tags),
+        exclude_tags=list(DEFAULT_CONFIG.exclude_tags),
+        keyword=DEFAULT_CONFIG.keyword,
+        maxfail=DEFAULT_CONFIG.maxfail,
+        verbosity=DEFAULT_CONFIG.verbosity,
+        addopts=list(DEFAULT_CONFIG.addopts),
+        concurrency=DEFAULT_CONFIG.concurrency,
+        timeout=DEFAULT_CONFIG.timeout,
+        db_path=DEFAULT_CONFIG.db_path,
+        save_to_db=DEFAULT_CONFIG.save_to_db,
+        reporters=list(DEFAULT_CONFIG.reporters),
+        reporter_options=dict(DEFAULT_CONFIG.reporter_options),
+    )
+
+
+def test_parser_accepts_valid_run_id():
+    parser = _build_parser()
+    run_id = uuid4()
+    args = parser.parse_args(["test", "--run-id", str(run_id)])
+    assert args.run_id == run_id
+
+
+def test_parser_rejects_invalid_run_id():
+    parser = _build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["test", "--run-id", "not-a-uuid"])
+    assert exc.value.code == 2
+
+
+@pytest.mark.asyncio
+async def test_run_tests_returns_2_when_run_id_already_exists(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "merit.db"
+    existing_run_id = uuid4()
+
+    store = SQLiteStore(db_path)
+    store.save_run(
+        MeritRun(
+            run_id=existing_run_id,
+            environment=RunEnvironment(merit_version="1.0.0"),
+            result=RunResult(),
+        )
+    )
+
+    parser = _build_parser()
+    args = parser.parse_args(["test", "--db-path", str(db_path), "--run-id", str(existing_run_id)])
+    config = _make_cli_config()
+
+    def _fail_if_called(_paths):
+        msg = "_collect_items should not be called when duplicate run_id is detected"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr("merit.cli._collect_items", _fail_if_called)
+
+    exit_code = await _run_tests(args, config)
+    assert exit_code == 2
+
+
+@pytest.mark.asyncio
+async def test_run_tests_keeps_normal_exit_code_when_run_id_is_unique(monkeypatch):
+    parser = _build_parser()
+    args = parser.parse_args(["test", "--run-id", str(uuid4()), "--no-db"])
+    config = _make_cli_config()
+
+    monkeypatch.setattr("merit.cli._collect_items", lambda _paths: [make_item("merit_ok", set())])
+
+    exit_code = await _run_tests(args, config)
+    assert exit_code == 0

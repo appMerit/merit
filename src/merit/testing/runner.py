@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import warnings
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from merit.context import (
     metric_results_collector,
@@ -33,6 +34,10 @@ from merit.testing.models import (
     TestStatus,
 )
 from merit.tracing import clear_traces, get_span_collector, init_tracing
+
+UUID_STRING_PATTERN = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 class Runner:
@@ -69,6 +74,7 @@ class Runner:
         capture_output: bool = True,
         save_to_db: bool = True,
         db_path: Path | str | None = None,
+        run_id: UUID | str | None = None,
     ) -> None:
         if not reporters:
             msg = "At least one reporter is required"
@@ -86,6 +92,7 @@ class Runner:
         self.capture_output = capture_output
         self.save_to_db = save_to_db
         self.db_path = Path(db_path) if db_path else None
+        self._default_run_id = self._normalize_run_id(run_id)
 
         self._tracer = TestTracer(enabled=enable_tracing)
         self._result_builder = ResultBuilder()
@@ -123,23 +130,62 @@ class Runner:
         """Initialize DB and run migrations. Raises MigrationError if not possible."""
         self._store = SQLiteStore(self.db_path)
 
+    @staticmethod
+    def _normalize_run_id(run_id: UUID | str | None) -> UUID | None:
+        if run_id is None:
+            return None
+        if isinstance(run_id, UUID):
+            return run_id
+        if isinstance(run_id, str) and UUID_STRING_PATTERN.fullmatch(run_id):
+            return UUID(run_id)
+        msg = f"Invalid run_id '{run_id}'. Expected UUID string."
+        raise ValueError(msg)
+
+    def _resolve_run_id(self, run_id: UUID | str | None) -> UUID | None:
+        normalized_run_id = self._normalize_run_id(run_id)
+        if normalized_run_id is not None:
+            return normalized_run_id
+        return self._default_run_id
+
+    def run_id_exists(self, run_id: UUID | str) -> bool:
+        """Return True when run_id already exists in configured SQLite storage."""
+        normalized_run_id = self._normalize_run_id(run_id)
+        if normalized_run_id is None:
+            msg = "run_id cannot be None."
+            raise ValueError(msg)
+        if self._store is None:
+            self._ensure_db_ready()
+        return self._store is not None and self._store.get_run(normalized_run_id) is not None
+
     async def run(
-        self, items: list[MeritTestDefinition] | None = None, path: str | None = None
+        self,
+        items: list[MeritTestDefinition] | None = None,
+        path: str | None = None,
+        run_id: UUID | str | None = None,
     ) -> MeritRun:
         """Run tests and return results.
 
         Args:
             items: Pre-collected test items, or None to discover.
             path: Path to discover tests from if items not provided.
+            run_id: Optional UUID for this run. Overrides constructor-level run_id.
 
         Returns:
             MeritRun with environment, results, and test executions.
         """
+        selected_run_id = self._resolve_run_id(run_id)
+
         if self.save_to_db:
             self._ensure_db_ready()
+            if selected_run_id and self.run_id_exists(selected_run_id):
+                msg = f"run_id '{selected_run_id}' already exists"
+                raise ValueError(msg)
 
         environment = capture_environment()
-        self.merit_run = MeritRun(environment=environment)
+        if selected_run_id is None:
+            self.merit_run = MeritRun(environment=environment)
+        else:
+            self.merit_run = MeritRun(environment=environment, run_id=selected_run_id)
 
         create_predicate_api_client()
 

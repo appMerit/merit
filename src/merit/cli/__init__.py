@@ -11,6 +11,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, TypeVar
+from uuid import UUID
 
 from rich.console import Console
 
@@ -115,6 +116,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--db-path",
         type=str,
         help="Path to the Merit SQLite database",
+    )
+    test_parser.add_argument(
+        "--run-id",
+        type=UUID,
+        help="UUID to assign to this test run",
     )
     test_parser.add_argument(
         "--no-db",
@@ -429,7 +435,19 @@ async def _run_tests(args: argparse.Namespace, config: MeritConfig) -> int:
         save_to_db=save_to_db,
         db_path=db_path,
     )
-    merit_run = await runner.run(items=items)
+
+    if save_to_db and args.run_id and runner.run_id_exists(args.run_id):
+        Console().print(f"[red]run_id '{args.run_id}' already exists[/red]")
+        return 2
+
+    items = _collect_items(paths)
+    try:
+        items = _filter_items(items, include_tags, exclude_tags, keyword)
+    except ValueError as exc:
+        Console().print(f"[red]{exc}[/red]")
+        return 2
+
+    merit_run = await runner.run(items=items, run_id=args.run_id)
 
     return 0 if merit_run.result.failed == 0 and merit_run.result.errors == 0 else 1
 
