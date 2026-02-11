@@ -64,6 +64,11 @@ dependencies = [
     { name = "rich" },
 ]
 
+[package.optional-dependencies]
+analyze = [
+    { name = "pathspec" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "pre-commit" },
@@ -84,11 +89,13 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-anthropic", specifier = ">=0.49.0" },
     { name = "opentelemetry-instrumentation-openai", specifier = ">=0.49.0" },
     { name = "opentelemetry-sdk", specifier = ">=1.29.0" },
+    { name = "pathspec", marker = "extra == 'analyze'", specifier = ">=0.12.0" },
     { name = "pydantic", specifier = ">=2.12.3" },
     { name = "pydantic-settings", specifier = ">=2.11.0" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "rich", specifier = ">=14.2.0" },
 ]
+provides-extras = ["analyze"]
 
 [package.metadata.requires-dev]
 dev = [
