@@ -21,7 +21,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --all-groups
 
       - name: Run tests
         run: uv run pytest tests/unit --cov=merit --cov-report=xml
