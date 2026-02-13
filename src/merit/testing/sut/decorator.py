@@ -5,6 +5,7 @@ injected into Merit tests. All invocations are wrapped in OpenTelemetry spans,
 and any LLM calls made within are automatically captured as child spans.
 """
 
+import types
 import functools
 import inspect
 import os
@@ -49,27 +50,30 @@ def sut(
     """
     if fn is None:
         return lambda factory: sut(factory, scope=scope, method=method)
-    if inspect.isclass(fn):
-        raise TypeError("@sut can only decorate functions.")
+
+    if not isinstance(fn, types.FunctionType):
+        raise TypeError(f"""@sut can only decorate functions.
+        Got: {type(fn).__name__}
+        Expected: FunctionType
+        """)
 
     factory_name = fn.__name__
 
-    def on_resolve(value: Any) -> Any:
-        match value:
-            case None:
-                raise TypeError(
-                    f"@sut resource '{factory_name}' resolved to None. "
-                    "Return/yield a callable or an instance."
-                )
-            case Callable():
-                return _trace_callable(value, sut_name=factory_name)
-            case instance if isinstance(getattr(instance, method, None), Callable):
-                return _trace_instance_method(instance, sut_name=factory_name, method=method)
+    def on_resolve(sut_instance: Any) -> Any:
+        match sut_instance:
+            case types.FunctionType() | types.MethodType():
+                return _trace_callable(sut_instance, sut_name=factory_name)
+
+            case _ if isinstance(getattr(sut_instance, method, None), types.MethodType):
+                return _trace_instance_method(sut_instance, sut_name=factory_name, method=method)
+
             case _:
-                raise TypeError(
-                    f"@sut resource '{factory_name}' returned non-callable instance "
-                    f"without method '{method}'."
-                )
+                msg = f"""SUT '{factory_name}' resolved to unsupported type: 
+                {type(sut_instance).__name__}
+                Expected a FunctionType, MethodType, or an instance with a MethodType.
+                """
+                raise TypeError(msg)
+
     return resource(
         fn,
         scope=scope,
@@ -110,7 +114,6 @@ def _trace_callable(fn: Callable[..., Any], *, sut_name: str) -> Callable[..., A
 
 
 def _trace_instance_method(instance: Any, *, sut_name: str, method: str) -> Any:
-    # Validation happens in on_resolve() so this function can focus on wrapping.
     original_method = getattr(instance, method)
 
     if inspect.iscoroutinefunction(original_method):

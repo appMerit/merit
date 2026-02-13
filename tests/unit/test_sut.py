@@ -133,7 +133,7 @@ class TestSutResolution:
             return None
 
         resolver = ResourceResolver(get_registry())
-        with pytest.raises(RuntimeError, match="resolved to None"):
+        with pytest.raises(RuntimeError, match="Hook on_resolve failed"):
             await resolver.resolve("bad_sut")
 
     @pytest.mark.asyncio
@@ -146,7 +146,7 @@ class TestSutResolution:
             return NoRun()
 
         resolver = ResourceResolver(get_registry())
-        with pytest.raises(RuntimeError, match="without method 'run'"):
+        with pytest.raises(RuntimeError, match="resolved to unsupported type"):
             await resolver.resolve("no_run")
 
 

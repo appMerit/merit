@@ -23,7 +23,7 @@ def simple_pipeline() -> Callable:
 
 @merit.sut
 def multi_step_pipeline() -> Callable:
-    """A pipeline with multiple trace steps."""\
+    """A pipeline with multiple trace steps."""
 
     def rag(query: str) -> str:
         with merit.trace_step("retrieve"):
