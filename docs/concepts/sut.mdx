@@ -5,16 +5,18 @@ title: "SUT"
 <Note>SUT stands for *System Under Test*.</Note>
 <Note>`@merit.sut` is optional. It exists to make your agent/workflow callable injectable and traceable.</Note>
 
-`@merit.sut` registers a function (or class) as an injectable **resource** and wraps each invocation in an OpenTelemetry span. This gives you two things:
+`@merit.sut` registers a **SUT factory function** as an injectable **resource** and wraps each resolved invocation in an OpenTelemetry span. This gives you two things:
 - A clean dependency injection (DI) boundary in your merits (you call the injected parameter, not a global).
 - Trace spans you can query inside a test via `trace_context` (when tracing is enabled).
 
 ```python
 import merit
 
+from demo_app.chatbot import chatbot as prod_chatbot
+
 @merit.sut
-def chatbot(prompt: str) -> str:
-    return f"Response to: {prompt}"
+def chatbot():
+    return prod_chatbot
 
 def merit_chatbot_works(chatbot):
     out = chatbot("hello")
@@ -35,12 +37,11 @@ The most common use case for `@merit.sut` is asserting on the SUT call span(s).
 # merits/merit_agent.py
 import merit
 
-from demo_app import agent
+from demo_app.weather import weather_agent as prod_weather_agent
 
 @merit.sut
-def weather_agent(prompt: str):
-    # Pass arguments to your production agent
-    return agent(prompt, tools=["get_weather"])
+def weather_agent():
+    return prod_weather_agent
 ```
 </Step>
 <Step title="Inject into a `merit` and assert on the trace">
@@ -64,41 +65,39 @@ def merit_weather_agent_calls_tools(weather_agent, trace_context):
 ## What `@merit.sut` actually does
 
 ### Injection semantics
-`@merit.sut` registers a session-scoped resource factory so the Merit runner can inject it into tests by parameter name.
+`@merit.sut` registers a resource factory so the Merit runner can inject it into tests by parameter name (by default, a **case-scoped** resource).
+
+If constructing your SUT is expensive, you can widen its lifecycle using `scope` (the same values as `@merit.resource`):
+
+```python
+import merit
+from demo_app.weather import weather_agent as prod_weather_agent
+
+@merit.sut(scope="session")
+def weather_agent():
+    return prod_weather_agent
+```
 
 That’s why you should call the injected `chatbot` parameter inside `merit_chatbot_works(chatbot)`, not the decorated global name.
 
 ### Naming rules (important for DI and `get_sut_spans`)
-- **Default name**: function name (`def weather_agent(...)` → `"weather_agent"`).
-- **Name override**: `@merit.sut(name="...")`.
-- **Classes**: default name is snake_case of the class (`MyAgent` → `"my_agent"`).
+- **SUT name**: the factory function name (`def weather_agent(): ...` → `"weather_agent"`).
+  - Pick your factory name intentionally, since it’s used for dependency injection *and* the `sut.<sut_name>` span name.
 
-### Class-based SUTs
-You can register a class as the SUT. By default Merit traces `__call__`, but you can specify another method:
-
-```python
-import merit
-
-@merit.sut
-class WeatherAgent:
-    def __call__(self, prompt: str) -> str:
-        return f"ok: {prompt}"
-
-def merit_class_sut_is_injected(weather_agent):
-    out = weather_agent("hi")
-    assert out
-```
+### Instance-based SUTs (trace a method)
+If your factory returns a **non-callable instance**, Merit will trace a method on that instance. By default it traces `__call__`, but you can set `method="run"` (or any method name your object provides):
 
 ```python
 import merit
+
+from demo_app.agents import WeatherAgent
 
 @merit.sut(method="run")
-class Agent:
-    def run(self, task: str) -> str:
-        return f"done: {task}"
+def weather_agent():
+    return WeatherAgent()
 
-def merit_custom_method(agent):
-    out = agent.run("task")
+def merit_custom_method(weather_agent):
+    out = weather_agent.run("task")
     assert out
 ```
 
@@ -128,9 +127,9 @@ import merit
 from typing import Literal
 
 @merit.sut
-def agent(prompt: str, domain: Literal["marketing", "coding"]) -> str:
-    answer = call_llm(prompt=prompt, domain=domain)
-    return f"Agent response: {prompt}"
+def agent():
+    # Don't decorate production entrypoints; wrap them in your merits layer instead.
+    ...
 ```
 
 **Do this:**
@@ -138,12 +137,13 @@ def agent(prompt: str, domain: Literal["marketing", "coding"]) -> str:
 # merits/merit_agent.py
 import merit
 
-from app import agent
+from functools import partial
+from app import agent as prod_agent
 
 @merit.sut
-def marketing_agent(prompt: str) -> str:
-    """Q&A system that answers questions about marketing concepts"""
-    return agent(prompt, domain="marketing")
+def marketing_agent():
+    """Q&A system that answers questions about marketing concepts."""
+    return partial(prod_agent, domain="marketing")
 
 def merit_marketing_agent_invokes(marketing_agent):
     out = marketing_agent("What's CAC?")
@@ -157,24 +157,27 @@ def merit_marketing_agent_invokes(marketing_agent):
 **Don't do this:**
 ```python
 import merit
+from demo_app.chatbot import chatbot as prod_chatbot
 
 @merit.sut
-def chatbot(prompt: str) -> str:
-    return f"Bot response: {prompt}"
+def chatbot():
+    return prod_chatbot
 
 def merit_chatbot_runs():
     # This is the resource factory, not the injected callable
-    out = chatbot("Hello!")
+    sut = chatbot()
+    out = sut("Hello!")
     assert out
 ```
 
 **Do this:**
 ```python
 import merit
+from demo_app.chatbot import chatbot as prod_chatbot
 
 @merit.sut
-def chatbot(prompt: str) -> str:
-    return f"Bot response: {prompt}"
+def chatbot():
+    return prod_chatbot
 
 def merit_chatbot_runs(chatbot):
     out = chatbot("Hello!")

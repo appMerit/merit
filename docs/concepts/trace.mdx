@@ -48,18 +48,21 @@ Use `trace_context` to query spans created during the current merit case executi
 ```python
 import merit
 
+from demo_app.weather import retrieve_docs
+from demo_app.weather import weather_agent as prod_weather_agent
+
 
 @merit.sut
-def weather_agent(prompt: str) -> str:
-    with merit.trace_step("retrieve"):
-        docs = ["SF is foggy", "Temps are cool"]
-
-    with merit.trace_step("generate", {"doc_count": len(docs)}):
-        return f"Answer for: {prompt}"
+def weather_agent():
+    return prod_weather_agent
 
 
 def merit_can_inspect_trace(weather_agent, trace_context):
-    out = weather_agent("What's the weather in SF?")
+    with merit.trace_step("retrieve"):
+        docs = retrieve_docs("SF weather")
+
+    with merit.trace_step("generate", {"doc_count": len(docs)}):
+        out = weather_agent("What's the weather in SF?", docs=docs)
 
     # All spans created during this test (same trace_id)
     spans = trace_context.get_child_spans()
