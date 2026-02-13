@@ -65,14 +65,14 @@ def merit_test(api_client, database, authenticated_client):
 
 ### @sut
 
-Register a callable or class as a traced system-under-test resource.
+Register a function factory as a traced system-under-test resource.
 
 **Signature:**
 ```python
 @sut(
-    fn: Callable | type | None = None,
+    fn: Callable | None = None,
     *,
-    name: str | None = None,
+    scope: Scope | str = Scope.CASE,
     method: str = "__call__",
 )
 ```
@@ -81,38 +81,33 @@ Register a callable or class as a traced system-under-test resource.
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `fn` | `Callable \| type \| None` | `None` | The callable or class to register as SUT |
-| `name` | `str \| None` | `None` | Optional name override (defaults to function/class name) |
-| `method` | `str` | `"__call__"` | Method name to trace for class-based SUTs |
+| `fn` | `Callable \| None` | `None` | The SUT factory function to register |
+| `scope` | `Scope \| str` | `Scope.CASE` | Resource lifecycle scope: `"case"`, `"suite"`, `"session"` |
+| `method` | `str` | `"__call__"` | Method to trace when the factory returns a non-callable instance |
 
-**Returns:** Traced resource automatically registered with session scope
+**Returns:** Decorated function registered as a traced resource
 
 **Example:**
 ```python
 import merit
 
-@merit.sut
-async def my_agent(prompt: str) -> str:
-    return await llm.generate(prompt)
+from rag import retrieve
+from agents import Agent
 
 @merit.sut
-class RAGPipeline:
-    def __call__(self, query: str) -> str:
-        return self.generate(self.retrieve(query))
+def rag():
+    return retrieve
 
 @merit.sut(method="run")
-class Agent:
-    def run(self, task: str) -> str:
-        return self.execute(task)
+def agent():
+    agent = Agent(tools="all")
+    return agent
 
-def merit_test(my_agent, rag_pipeline, agent):
-    # All SUTs automatically traced
-    result = my_agent("Hello")
-    output = rag_pipeline("Query")
-    agent.run("Task")
+def merit_test(agent, rag):
+    # Resolved values behave like original callable/instance APIs
+    context = retrieve("Privacy policy")
+    output = agent.run("How do you store my data"?, context=context)
 ```
-
-**Note:** For classes, resource names are converted from CamelCase to snake_case (e.g., `MyAgent` → `my_agent`).
 
 ---
 
