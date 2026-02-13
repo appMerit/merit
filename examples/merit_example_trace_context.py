@@ -11,9 +11,11 @@ from collections.abc import Callable
 
 import merit
 
+
 @merit.sut
 def simple_pipeline() -> Callable:
     """A simple SUT that processes a query."""
+
     def process(query: str) -> str:
         with merit.trace_step("process", {"query_length": len(query)}):
             return f"Processed: {query}"

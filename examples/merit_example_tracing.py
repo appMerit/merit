@@ -28,13 +28,16 @@ def simple_sut() -> Callable:
 @merit.sut
 async def async_sut() -> Callable:
     """Async SUT - works the same way."""
+
     # Simulating async LLM call
     async def slow_response(prompt: str) -> str:
         import asyncio
+
         await asyncio.sleep(0.01)
         return f"Async response to: {prompt}"
 
     return slow_response
+
 
 @merit.sut
 def pipeline_sut() -> Callable:
@@ -58,6 +61,7 @@ def pipeline_sut() -> Callable:
             """Internal method with trace step."""
             with merit.trace_step("generate", {"doc_count": len(docs)}):
                 return f"Answer based on {len(docs)} docs for: {query}"
+
     return PipelineSUT()
 
 

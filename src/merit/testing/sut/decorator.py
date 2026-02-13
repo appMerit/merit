@@ -68,7 +68,7 @@ def sut(
                 return _trace_instance_method(sut_instance, sut_name=factory_name, method=method)
 
             case _:
-                msg = f"""SUT '{factory_name}' resolved to unsupported type: 
+                msg = f"""SUT '{factory_name}' resolved to unsupported type:
                 {type(sut_instance).__name__}
                 Expected a FunctionType, MethodType, or an instance with a MethodType.
                 """
