@@ -95,7 +95,6 @@ def _trace_callable(fn: Callable[..., Any], *, sut_name: str) -> Callable[..., A
                 _set_output_attrs(span, result)
                 return result
 
-        functools.update_wrapper(traced_async, fn)
         return traced_async
 
     @functools.wraps(fn)
@@ -109,7 +108,6 @@ def _trace_callable(fn: Callable[..., Any], *, sut_name: str) -> Callable[..., A
             _set_output_attrs(span, result)
             return result
 
-    functools.update_wrapper(traced, fn)
     return traced
 
 
@@ -129,7 +127,6 @@ def _trace_instance_method(instance: Any, *, sut_name: str, method: str) -> Any:
                 _set_output_attrs(span, result)
                 return result
 
-        functools.update_wrapper(traced_async, original_method)
         setattr(instance, method, traced_async)
         return instance
 
@@ -144,7 +141,6 @@ def _trace_instance_method(instance: Any, *, sut_name: str, method: str) -> Any:
             _set_output_attrs(span, result)
             return result
 
-    functools.update_wrapper(traced, original_method)
     setattr(instance, method, traced)
     return instance
 
