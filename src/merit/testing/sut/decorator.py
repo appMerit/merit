@@ -30,7 +30,7 @@ def sut(
 
     Supports function factories only. The decorated function is treated as a
     resource factory and should return (or yield) either:
-    - a callable to trace, or
+    - a FunctionType, MethodType, or partial to trace, or
     - an instance whose method should be traced.
 
     Args:
@@ -61,7 +61,7 @@ def sut(
 
     def on_resolve(sut_instance: Any) -> Any:
         match sut_instance:
-            case types.FunctionType() | types.MethodType():
+            case types.FunctionType() | types.MethodType() | functools.partial():
                 return _trace_callable(sut_instance, sut_name=factory_name)
 
             case _ if isinstance(getattr(sut_instance, method, None), types.MethodType):
