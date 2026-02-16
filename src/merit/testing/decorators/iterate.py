@@ -1,7 +1,7 @@
 from typing import Any, Callable
 from typing_extensions import TypeVar
 
-from merit.testing.models import Case, CaseIterateModifier
+from merit.testing.models import Case, CaseGroup, CaseGroupIterateModifier, CaseIterateModifier
 
 
 RefsT = TypeVar("RefsT", default=dict[str, Any])
@@ -51,6 +51,31 @@ def iter_cases(
         if cases_list
         else None
     )
+
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+        if definition_error:
+            fn.__merit_definition_error__ = definition_error  # type: ignore[attr-defined]
+            return fn
+
+        if modifier is None:
+            return fn
+
+        modifiers: list[Any] = getattr(fn, "__merit_modifiers__", [])
+        modifiers.append(modifier)
+        fn.__merit_modifiers__ = modifiers  # type: ignore[attr-defined]
+        return fn
+
+    return decorator
+
+
+def iter_case_groups(
+    *groups: CaseGroup[Any, Any],
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Decorator to run a test function for each case group."""
+    groups_list = list(groups)
+
+    definition_error = None if groups_list else "iter_case_groups requires at least one case group"
+    modifier = CaseGroupIterateModifier(groups=tuple(groups_list)) if groups_list else None
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         if definition_error:

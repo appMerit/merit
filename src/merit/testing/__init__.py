@@ -1,7 +1,7 @@
 """Testing framework for AI agents."""
 
 from merit.resources import ResourceResolver, Scope, resource
-from merit.testing.decorators import iter_cases, parametrize, repeat, tag
+from merit.testing.decorators import iter_case_groups, iter_cases, parametrize, repeat, tag
 from merit.testing.discovery import collect
 from merit.testing.environment import capture_environment
 from merit.testing.execution import (
@@ -16,8 +16,11 @@ from merit.testing.execution import (
 )
 from merit.testing.models import (
     Case,
+    CaseGroup,
+    CaseGroupIterateModifier,
     MeritRun,
     MeritTestDefinition,
+    CaseIterateModifier,
     Modifier,
     ParameterSet,
     ParametrizeModifier,
@@ -37,6 +40,9 @@ TestItem = MeritTestDefinition
 
 __all__ = [
     "Case",
+    "CaseGroup",
+    "CaseGroupIterateModifier",
+    "CaseIterateModifier",
     "DefaultTestFactory",
     "FailTest",
     "MeritRun",
@@ -67,6 +73,7 @@ __all__ = [
     "collect",
     "fail",
     "iter_cases",
+    "iter_case_groups",
     "parametrize",
     "repeat",
     "resource",

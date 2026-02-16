@@ -6,11 +6,12 @@ from collections.abc import Sequence
 from typing import Any, Generic
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing_extensions import TypeVar
 
 
 RefsT = TypeVar("RefsT", default=dict[str, Any])
+GroupRefsT = TypeVar("GroupRefsT", default=dict[str, Any])
 
 
 # Data model for case values
@@ -33,7 +34,7 @@ class Case(BaseModel, Generic[RefsT]):
         Input arguments to be passed to the System Under Test (SUT).
     """
 
-    model_config = ConfigDict(validate_default=True)
+    model_config = ConfigDict(validate_default=True, frozen=True)
 
     id: UUID = Field(default_factory=uuid4)
     tags: set[str] = Field(default_factory=set)
@@ -42,9 +43,17 @@ class Case(BaseModel, Generic[RefsT]):
     sut_input_values: dict[str, Any] = Field(default_factory=dict)
 
 
-class CaseGroup(BaseModel, Generic[RefsT]):
-    """Container for a group of test cases."""
+class CaseGroup(BaseModel, Generic[RefsT, GroupRefsT]):
+    model_config = ConfigDict(validate_default=True, frozen=True)
 
     name: str
-    cases: list[Case[RefsT]] = Field(default_factory=list)
-    min_passes: int = Field(default=1)
+    cases: list[Case[RefsT]] = Field(default_factory=list, min_length=1)
+    references: GroupRefsT = Field(default_factory=dict)  # type: ignore[assignment]
+    min_passes: int = Field(default=1, ge=1)
+
+    @model_validator(mode="after")
+    def validate_min_passes(self) -> CaseGroup[RefsT, GroupRefsT]:
+        if self.min_passes > len(self.cases):
+            msg = f"min_passes ({self.min_passes}) cannot exceed cases count ({len(self.cases)})"
+            raise ValueError(msg)
+        return self
