@@ -1,10 +1,13 @@
+import asyncio
+from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from merit.testing import Runner
 from merit.testing.decorators import iter_cases
-from merit.testing.models import ParametrizeModifier, Case, validate_cases_for_sut
+from merit.testing.models import Case, CaseIterateModifier, TestItem, validate_cases_for_sut
 
 
 def test_case_generic_dict():
@@ -68,16 +71,8 @@ def test_iter_cases_decorator():
 
     modifiers = getattr(my_test, "__merit_modifiers__", [])
     assert len(modifiers) == 1
-    assert isinstance(modifiers[0], ParametrizeModifier)
-
-    param_sets = modifiers[0].parameter_sets
-    assert len(param_sets) == 2
-    assert param_sets[0].values["case"] == cases[0]
-    assert param_sets[1].values["case"] == cases[1]
-
-    # Check that IDs are correctly set from case IDs
-    assert param_sets[0].id_suffix == str(cases[0].id)
-    assert param_sets[1].id_suffix == str(cases[1].id)
+    assert isinstance(modifiers[0], CaseIterateModifier)
+    assert modifiers[0].cases == tuple(cases)
 
 
 def test_iter_cases_empty_is_deferred_to_execution():
@@ -88,5 +83,33 @@ def test_iter_cases_empty_is_deferred_to_execution():
     modifiers = getattr(my_test, "__merit_modifiers__", [])
     assert modifiers == []
     assert getattr(my_test, "__merit_definition_error__", None) == (
-        "parametrize() requires at least one value set"
+        "iter_cases requires at least one case"
     )
+
+
+def test_runner_iter_cases_injects_case_and_sets_suffix(null_reporter):
+    seen_cases: list[Case[Any]] = []
+    cases = [Case(sut_input_values={"x": 1}), Case(sut_input_values={"x": 2})]
+
+    def merit_collect_case(case):
+        seen_cases.append(case)
+
+    item = TestItem(
+        name="merit_collect_case",
+        fn=merit_collect_case,
+        module_path=Path("sample.py"),
+        is_async=False,
+        params=["case"],
+        modifiers=[CaseIterateModifier(cases=tuple(cases))],
+    )
+
+    run_result = asyncio.run(Runner(reporters=[null_reporter]).run(items=[item]))
+    parent_execution = run_result.result.executions[0]
+
+    assert run_result.result.passed == 1
+    assert seen_cases == cases
+    assert len(parent_execution.sub_executions) == 2
+    assert [sub.definition.id_suffix for sub in parent_execution.sub_executions] == [
+        str(cases[0].id),
+        str(cases[1].id),
+    ]

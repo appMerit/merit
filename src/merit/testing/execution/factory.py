@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from merit.testing.execution import parametrized, repeated, single
+from merit.testing.execution import iterated, parametrized, repeated, single
 from merit.testing.execution.interfaces import MeritTest, TestFactory
 from merit.testing.execution.result_builder import ResultBuilder
 from merit.testing.execution.tracer import TestTracer
 from merit.testing.models import (
+    CaseIterateModifier,
     MeritTestDefinition,
     ParametrizeModifier,
     RepeatModifier,
@@ -45,6 +46,13 @@ class DefaultTestFactory(TestFactory):
                     params=params,
                     count=mod.count,
                     min_passes=mod.min_passes,
+                    factory=self,
+                )
+            case [CaseIterateModifier() as mod, *_]:
+                return iterated.CaseIteratedMeritTest(
+                    definition=definition,
+                    params=params,
+                    cases=mod.cases,
                     factory=self,
                 )
             case [ParametrizeModifier() as mod, *_]:

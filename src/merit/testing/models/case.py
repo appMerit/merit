@@ -44,6 +44,13 @@ class Case(BaseModel, Generic[RefsT]):
     references: RefsT = Field(default_factory=dict)  # type: ignore[assignment]
     sut_input_values: dict[str, Any] = Field(default_factory=dict)
 
+class CaseGroup(BaseModel, Generic[RefsT]):
+    """Container for a group of test cases."""
+
+    name: str
+    cases: list[Case[RefsT]] = Field(default_factory=list)
+    min_passes: int = Field(default=1)
+
 
 # Validation engine
 

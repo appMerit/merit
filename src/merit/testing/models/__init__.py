@@ -2,6 +2,7 @@
 
 from merit.testing.models.definition import MeritTestDefinition
 from merit.testing.models.modifiers import (
+    CaseIterateModifier,
     Modifier,
     ParameterSet,
     ParametrizeModifier,
@@ -20,6 +21,7 @@ __all__ = [
     "validate_cases_for_sut",
     "MeritRun",
     "MeritTestDefinition",
+    "CaseIterateModifier",
     "Modifier",
     "ParameterSet",
     "ParametrizeModifier",
