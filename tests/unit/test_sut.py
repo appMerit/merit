@@ -5,8 +5,10 @@ import inspect
 import json
 
 import pytest
+from pydantic_core import ValidationError
 
 from merit.resources import ResourceResolver, Scope, clear_registry, get_registry, resource
+from merit.testing.models import Case
 from merit.testing.sut import sut
 from merit.tracing import clear_traces, set_trace_output_path
 
@@ -148,6 +150,56 @@ class TestSutResolution:
         resolver = ResourceResolver(get_registry())
         with pytest.raises(RuntimeError, match="resolved to unsupported type"):
             await resolver.resolve("no_run")
+
+    @pytest.mark.asyncio
+    async def test_validate_cases_applies_to_resolved_callable_signature(self):
+        cases = [Case(sut_input_values={"x": 1, "y": 2})]
+
+        @sut(validate_cases=cases)
+        def adder():
+            def run(x: int, y: int) -> int:
+                return x + y
+
+            return run
+
+        resolver = ResourceResolver(get_registry())
+        resolved = await resolver.resolve("adder")
+
+        assert resolved(2, 3) == 5
+
+    @pytest.mark.asyncio
+    async def test_validate_cases_raises_on_invalid_case(self):
+        cases = [Case(sut_input_values={"x": "not-an-int"})]
+
+        @sut(validate_cases=cases)
+        def increment():
+            def run(x: int) -> int:
+                return x + 1
+
+            return run
+
+        resolver = ResourceResolver(get_registry())
+        with pytest.raises(RuntimeError, match="Hook on_resolve failed") as exc:
+            await resolver.resolve("increment")
+
+        assert isinstance(exc.value.__cause__, ValidationError)
+
+    @pytest.mark.asyncio
+    async def test_validate_cases_targets_instance_method_signature(self):
+        class Pipeline:
+            def run(self, x: int) -> int:
+                return x * 2
+
+        cases = [Case(sut_input_values={"x": 7})]
+
+        @sut(method="run", validate_cases=cases)
+        def pipeline():
+            return Pipeline()
+
+        resolver = ResourceResolver(get_registry())
+        resolved = await resolver.resolve("pipeline")
+
+        assert resolved.run(3) == 6
 
 
 class TestSutTracing:

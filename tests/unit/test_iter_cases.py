@@ -3,11 +3,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from merit.testing import Runner
 from merit.testing.decorators import iter_cases
-from merit.testing.models import Case, CaseIterateModifier, TestItem, validate_cases_for_sut
+from merit.testing.models import Case, CaseIterateModifier, TestItem
 
 
 def test_case_generic_dict():
@@ -32,33 +32,6 @@ def test_case_generic_basemodel():
     assert isinstance(case.references, MyRefs)
     assert case.references.expected == "value"
     assert case.references.score == 1.0
-
-
-def test_validate_cases_for_sut_valid():
-    """Test validate_cases_for_sut with valid inputs."""
-
-    def my_sut(name: str, age: int, *args, **kwargs):
-        pass
-
-    cases = [
-        Case(sut_input_values={"name": "Alice", "age": 30}),
-        Case(sut_input_values={"name": "Bob", "age": 25}),
-    ]
-
-    assert validate_cases_for_sut(cases, my_sut) == cases
-
-
-def test_validate_cases_for_sut_invalid():
-    """Test validate_cases_for_sut with invalid inputs."""
-
-    def my_sut(name: str, age: int):
-        pass
-
-    # age should be int, but we provide str
-    cases = [Case(sut_input_values={"name": "Alice", "age": "not-an-int"})]
-
-    with pytest.raises(ValidationError):
-        validate_cases_for_sut(cases, my_sut)
 
 
 def test_iter_cases_decorator():

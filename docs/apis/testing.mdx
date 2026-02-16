@@ -74,6 +74,7 @@ Register a function factory as a traced system-under-test resource.
     *,
     scope: Scope | str = Scope.CASE,
     method: str = "__call__",
+    validate_cases: list[Case[Any]] | None = None,
 )
 ```
 
@@ -84,6 +85,7 @@ Register a function factory as a traced system-under-test resource.
 | `fn` | `Callable \| None` | `None` | The SUT factory function to register |
 | `scope` | `Scope \| str` | `Scope.CASE` | Resource lifecycle scope: `"case"`, `"suite"`, `"session"` |
 | `method` | `str` | `"__call__"` | Method to trace when the factory returns a non-callable instance |
+| `validate_cases` | `list[Case[Any]] \| None` | `None` | Cases to validate against the resolved SUT signature (raises on invalid input) |
 
 **Returns:** Decorated function registered as a traced resource
 
@@ -102,6 +104,15 @@ def rag():
 def agent():
     agent = Agent(tools="all")
     return agent
+
+cases = [
+    merit.Case(sut_input_values={"query": "Privacy policy"}),
+    merit.Case(sut_input_values={"query": "How do you store data?"}),
+]
+
+@merit.sut(validate_cases=cases)
+def search_agent():
+    return retrieve
 
 def merit_test(agent, rag):
     # Resolved values behave like original callable/instance APIs
@@ -671,48 +682,22 @@ def merit_from_dataset_pass_at_k(case: Case, classifier):
 
 ---
 
-### validate_cases_for_sut
+### SUT case validation
 
-Validate that test cases match the SUT's signature.
+Validate case inputs by passing them to `@sut(validate_cases=...)`. Validation runs during SUT resolution and raises if any case does not match the resolved callable/method signature.
 
-**Signature:**
 ```python
-def validate_cases_for_sut(
-    cases: Sequence[Case[RefsT]],
-    sut: Callable[..., Any],
-    raise_on_invalid: bool = True,
-) -> Sequence[Case[RefsT]]
-```
-
-**Parameters:**
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `cases` | `Sequence[Case[RefsT]]` | - | Test cases to validate |
-| `sut` | `Callable[..., Any]` | - | System under test to validate against |
-| `raise_on_invalid` | `bool` | `True` | Whether to raise if any case is invalid |
-
-**Returns:** `Sequence[Case[RefsT]]` - Valid cases (or all cases if validation passed)
-
-**Raises:** The underlying validation exception if any case's inputs don't match the SUT signature (when `raise_on_invalid=True`)
-
-**Example:**
-```python
-from merit import Case
-from merit.testing.case import validate_cases_for_sut
-
-def my_agent(prompt: str, temperature: float = 0.7) -> str:
-    return llm.generate(prompt, temperature=temperature)
+import merit
 
 cases = [
-    Case(sut_input_values={"prompt": "Hello", "temperature": 0.5}),
-    Case(sut_input_values={"prompt": "Hi"}),  # temperature optional
-    Case(sut_input_values={"invalid": "param"}),  # Invalid!
+    merit.Case(sut_input_values={"prompt": "Hello", "temperature": 0.5}),
+    merit.Case(sut_input_values={"prompt": "Hi"}),
 ]
 
-# Validate before running
-validate_cases_for_sut(cases, my_agent)  # Raises ValidationError by default
+@merit.sut(validate_cases=cases)
+def my_agent():
+    def run(prompt: str, temperature: float = 0.7) -> str:
+        return f"{prompt} @ {temperature}"
 
-# Or filter out invalid cases
-valid_cases = validate_cases_for_sut(cases, my_agent, raise_on_invalid=False)
+    return run
 ```

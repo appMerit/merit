@@ -13,7 +13,6 @@ from .testing import (
     resource,
     skip,
     tag,
-    validate_cases_for_sut,
     xfail,
 )
 from .testing.sut import sut
@@ -24,7 +23,6 @@ __all__ = [
     # Core testing
     "Case",
     "iter_cases",
-    "validate_cases_for_sut",
     "parametrize",
     "repeat",
     "tag",

@@ -16,7 +16,6 @@ from merit.testing.execution import (
 )
 from merit.testing.models import (
     Case,
-    validate_cases_for_sut,
     MeritRun,
     MeritTestDefinition,
     Modifier,
@@ -73,6 +72,5 @@ __all__ = [
     "resource",
     "skip",
     "tag",
-    "validate_cases_for_sut",
     "xfail",
 ]

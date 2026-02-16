@@ -140,31 +140,30 @@ smoke_cases = [c for c in cases if "smoke" in c.tags]
 
 ### Validating cases for a SUT
 
-If cases come from files/APIs, validate them against your SUT’s signature before running:
+If cases come from files/APIs, validate them against your SUT's signature by attaching them to `@merit.sut(validate_cases=...)`:
 
 ```python
 import merit
-from merit import Case, validate_cases_for_sut
+from merit import Case
 
 
-def my_agent(prompt: str, temperature: float = 0.7) -> str:
-    return f"{prompt} @ {temperature}"
+@merit.sut(validate_cases=[
+    Case(sut_input_values={"prompt": "Hello", "temperature": 0.5}),
+    Case(sut_input_values={"prompt": "Hi"}),
+])
+def my_agent():
+    def run(prompt: str, temperature: float = 0.7) -> str:
+        return f"{prompt} @ {temperature}"
+
+    return run
 
 
 cases = [
     Case(sut_input_values={"prompt": "Hello", "temperature": 0.5}),
     Case(sut_input_values={"prompt": "Hi"}),
-    Case(sut_input_values={"invalid": "param"}),
 ]
 
-# Fail fast (default)
-# validate_cases_for_sut(cases, my_agent)
-
-# Or filter invalid cases
-valid_cases = validate_cases_for_sut(cases, my_agent, raise_on_invalid=False)
-
-
-@merit.iter_cases(*valid_cases)
+@merit.iter_cases(*cases)
 def merit_my_agent(case: Case):
     my_agent(**case.sut_input_values)
 ```
@@ -199,7 +198,7 @@ def merit_simple(x, add_one):
     assert result
 ```
 
-When loading cases from JSON/APIs, prefer `Case[YourModel]` (typed `references`) and validate inputs up-front with `validate_cases_for_sut(...)`.
+When loading cases from JSON/APIs, prefer `Case[YourModel]` (typed `references`) and validate inputs up-front with `@merit.sut(validate_cases=...)`.
 
 ### 2. Use tags and metadata for dynamic case selection
 

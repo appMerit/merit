@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any, Generic
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from pydantic.experimental.arguments_schema import generate_arguments_schema
-from pydantic_core import ArgsKwargs, SchemaValidator, ValidationError
 from typing_extensions import TypeVar
 
 
@@ -50,49 +48,3 @@ class CaseGroup(BaseModel, Generic[RefsT]):
     name: str
     cases: list[Case[RefsT]] = Field(default_factory=list)
     min_passes: int = Field(default=1)
-
-
-# Validation engine
-
-
-def validate_cases_for_sut(
-    cases: Sequence[Case[RefsT]],
-    sut: Callable[..., Any],
-    raise_on_invalid: bool = True,
-) -> Sequence[Case[RefsT]]:
-    """Return only the cases that match the signature of the System Under Test.
-
-    Parameters
-    ----------
-    cases : Sequence[Case[RefsT]]
-        A collection of test cases to validate.
-    sut : Callable[..., Any], optional
-        The System Under Test to validate against.
-    raise_on_invalid : bool, optional
-        Whether to raise an exception if any case is invalid. Defaults to True.
-
-    Returns:
-    -------
-    Sequence[Case[RefsT]]
-        The cases that match the signature of the System Under Test.
-    """
-    valid_cases = []
-    schema = generate_arguments_schema(
-        sut,
-        parameters_callback=(
-            lambda index, name, annotation: "skip" if name in {"self", "cls"} else None
-        ),
-    )
-    validator = SchemaValidator(schema)
-    for case in cases:
-        input_values = case.sut_input_values or {}
-        try:
-            parsed_args = ArgsKwargs(args=(), kwargs=input_values)
-            validator.validate_python(parsed_args)
-            # append if valid
-            valid_cases.append(case)
-        except ValidationError as e:
-            if raise_on_invalid:
-                raise e
-            continue
-    return valid_cases

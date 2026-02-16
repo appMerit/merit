@@ -1,10 +1,14 @@
 from typing import Any, Callable
+from typing_extensions import TypeVar
 
 from merit.testing.models import Case, CaseIterateModifier
 
 
+RefsT = TypeVar("RefsT", default=dict[str, Any])
+
+
 def iter_cases(
-    *cases: Case,
+    *cases: Case[RefsT],
     min_passes: int | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to run a test function for each case in the provided sequence.
