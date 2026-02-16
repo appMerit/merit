@@ -88,6 +88,32 @@ def merit_from_dataset_threshold(case: Case, classifier):
     assert result == case.references["some_ref_value"]
 ```
 
+**`@merit.iter_case_groups(*groups)`** - Iterate over `CaseGroup` objects with per-group thresholds and group-level references
+
+```python
+from merit import Case, CaseGroup
+
+geography = CaseGroup(
+    name="geography",
+    cases=[
+        Case(sut_input_values={"prompt": "Capital of France?"}, references={"expected": "Paris"}),
+        Case(sut_input_values={"prompt": "Capital of Germany?"}, references={"expected": "Berlin"}),
+    ],
+    min_passes=2,
+)
+
+music = CaseGroup(
+    name="music",
+    cases=[Case(sut_input_values={"prompt": "Best rock band?"}, references={"expected": "Metallica"})],
+    min_passes=1,
+)
+
+@merit.iter_case_groups(geography, music)
+def merit_chatbot(group: CaseGroup, case: Case, chatbot):
+    response = chatbot(**case.sut_input_values)
+    assert case.references["expected"] in response
+```
+
 **`@merit.tag(*tags)`** - Organize and filter merits by tags
 
 ```python

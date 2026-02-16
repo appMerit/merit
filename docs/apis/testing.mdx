@@ -389,6 +389,64 @@ case = Case[MyRefs](
 
 ---
 
+### CaseGroup
+
+Container for grouping related cases with group-level references and a pass threshold.
+
+**Type Parameters:**
+
+| Name | Default | Description |
+|------|---------|-------------|
+| `RefsT` | `dict[str, Any]` | Type of each case's `references` |
+| `GroupRefsT` | `dict[str, Any]` | Type of the group's `references` |
+
+**Attributes:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `name` | `str` | Unique group identifier (used in reports and ID suffixes) |
+| `cases` | `list[Case[RefsT]]` | One or more cases in this group (min 1) |
+| `references` | `GroupRefsT` | Group-level reference data, defaults to `{}` |
+| `min_passes` | `int` | Minimum case passes required for the group to pass (default `1`, must be `≥ 1` and `≤ len(cases)`) |
+
+**Example:**
+```python
+from pydantic import BaseModel
+from merit import Case, CaseGroup
+
+
+class CaseRefs(BaseModel):
+    expected: str
+
+class GroupRefs(BaseModel):
+    stop_keywords: list[str]
+
+
+geography = CaseGroup[CaseRefs, GroupRefs](
+    name="geography",
+    references=GroupRefs(stop_keywords=["Lol"]),
+    cases=[
+        Case[CaseRefs](
+            sut_input_values={"prompt": "Capital of France?"},
+            references=CaseRefs(expected="Paris"),
+        ),
+        Case[CaseRefs](
+            sut_input_values={"prompt": "Capital of Germany?"},
+            references=CaseRefs(expected="Berlin"),
+        ),
+    ],
+    min_passes=2,
+)
+
+# Untyped (dict references)
+simple = CaseGroup(
+    name="simple",
+    cases=[Case(sut_input_values={"x": 1})],
+)
+```
+
+---
+
 ### Scope
 
 Enum defining resource lifecycle scopes.
@@ -678,6 +736,69 @@ def merit_from_dataset(case: Case, classifier):
 def merit_from_dataset_pass_at_k(case: Case, classifier):
     result = classifier(**case.sut_input_values)
     assert result in {"positive", "negative", "neutral"}
+```
+
+---
+
+### iter_case_groups
+
+Decorator to run a merit function for each case group, iterating cases within each group.
+
+**Signature:**
+```python
+def iter_case_groups(
+    *groups: CaseGroup[RefsT, GroupRefsT],
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `*groups` | `CaseGroup[RefsT, GroupRefsT]` | One or more case groups to iterate over |
+
+**Returns:** Decorator that applies group-level iteration to the target function
+
+**Injected parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `group` | `CaseGroup` | The current group being executed |
+| `case` | `Case` | The current case within the group |
+
+**Execution semantics:**
+- Each group produces a nested execution; within each group, cases are iterated using the group's `min_passes` threshold.
+- The parent merit passes only if **all groups** pass (i.e. every group meets its own `min_passes`).
+
+**Validation:**
+- At least one group is required (empty call sets a deferred definition error)
+
+**Example:**
+```python
+import merit
+from merit import Case, CaseGroup
+
+geography = CaseGroup(
+    name="geography",
+    cases=[
+        Case(sut_input_values={"prompt": "Capital of France?"}, references={"expected": "Paris"}),
+        Case(sut_input_values={"prompt": "Capital of Germany?"}, references={"expected": "Berlin"}),
+    ],
+    min_passes=2,
+)
+
+music = CaseGroup(
+    name="music",
+    cases=[
+        Case(sut_input_values={"prompt": "Best rock band?"}, references={"expected": "Metallica"}),
+    ],
+    min_passes=1,
+)
+
+@merit.iter_case_groups(geography, music)
+def merit_chatbot(group: CaseGroup, case: Case, chatbot):
+    response = chatbot(**case.sut_input_values)
+    assert case.references["expected"] in response
 ```
 
 ---

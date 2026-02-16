@@ -6,6 +6,7 @@ title: "Case"
 
 Using `Case` enables:
 - Iterating one merit function over many scenarios with `@merit.iter_cases(...)`
+- Grouping related cases with `CaseGroup` and iterating with `@merit.iter_case_groups(...)`
 - Keeping inputs in `sut_input_values` (to call `sut(**case.sut_input_values)`)
 - Storing reference data in `references` (typed or untyped)
 - Tagging and filtering with `tags`, and attaching context with `metadata`
@@ -166,6 +167,115 @@ cases = [
 @merit.iter_cases(*cases)
 def merit_my_agent(case: Case):
     my_agent(**case.sut_input_values)
+```
+
+## CaseGroup
+
+A `CaseGroup` bundles related `Case` objects together with **group-level references** and a **pass threshold** (`min_passes`). This is useful when your evaluation naturally splits into logical groups (e.g. topics, languages, difficulty tiers) and you want to:
+
+- Assert on group-level data that applies to every case in the group
+- Set a per-group pass threshold instead of a single global one
+- Get hierarchical reporting: run → groups → cases
+
+### Basic Usage
+
+```python
+import merit
+from merit import Case, CaseGroup
+
+
+geography = CaseGroup(
+    name="geography",
+    cases=[
+        Case(sut_input_values={"prompt": "Capital of France?"}, references={"expected": "Paris"}),
+        Case(sut_input_values={"prompt": "Capital of Germany?"}, references={"expected": "Berlin"}),
+    ],
+    min_passes=2,  # strict: both must pass
+)
+
+music = CaseGroup(
+    name="music",
+    cases=[
+        Case(sut_input_values={"prompt": "Best rock band?"}, references={"expected": "Metallica"}),
+        Case(sut_input_values={"prompt": "Best pop artist?"}, references={"expected": "Lady Gaga"}),
+    ],
+    min_passes=1,  # tolerant: at least one must pass
+)
+
+
+@merit.iter_case_groups(geography, music)
+def merit_chatbot(group: CaseGroup, case: Case, chatbot):
+    response = chatbot(**case.sut_input_values)
+    assert case.references["expected"] in response
+```
+
+`@merit.iter_case_groups` injects two parameters by name:
+- **`group`** — the current `CaseGroup` (with its `name`, `references`, and `cases`)
+- **`case`** — the current `Case` inside that group
+
+The merit passes only if **every group** meets its own `min_passes` threshold.
+
+### Typed group references
+
+Just like `Case[RefsT]`, `CaseGroup` accepts two type parameters: one for case-level references and one for group-level references.
+
+```python
+from pydantic import BaseModel
+from merit import Case, CaseGroup
+
+
+class CaseRefs(BaseModel):
+    expected: str
+
+
+class GroupRefs(BaseModel):
+    stop_keywords: list[str]
+
+
+group = CaseGroup[CaseRefs, GroupRefs](
+    name="geography",
+    references=GroupRefs(stop_keywords=["Lol", "Kek"]),
+    cases=[
+        Case[CaseRefs](
+            sut_input_values={"prompt": "Capital of France?"},
+            references=CaseRefs(expected="Paris"),
+        ),
+    ],
+)
+
+# IDE autocomplete works on both levels
+group.references.stop_keywords   # list[str]
+group.cases[0].references.expected  # str
+```
+
+### Validation
+
+`CaseGroup` enforces these constraints at creation time:
+
+- `cases` must contain **at least 1** case
+- `min_passes` must be **≥ 1**
+- `min_passes` cannot exceed the number of `cases`
+
+```python
+# All of these raise ValueError at creation time:
+CaseGroup(name="empty", cases=[], min_passes=1)              # no cases
+CaseGroup(name="zero", cases=[Case(...)], min_passes=0)      # min_passes < 1
+CaseGroup(name="over", cases=[Case(...)], min_passes=2)      # min_passes > len(cases)
+```
+
+### Validating grouped cases for a SUT
+
+To validate all case inputs against your SUT signature, flatten the groups:
+
+```python
+import merit
+from merit import CaseGroup
+
+all_groups = [geography, music]
+
+@merit.sut(validate_cases=[case for group in all_groups for case in group.cases])
+def chatbot():
+    return my_chatbot_fn
 ```
 
 ## Recommendations
