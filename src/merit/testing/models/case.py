@@ -12,7 +12,6 @@ from pydantic_core import ArgsKwargs, SchemaValidator, ValidationError
 from typing_extensions import TypeVar
 
 
-
 RefsT = TypeVar("RefsT", default=dict[str, Any])
 
 
@@ -43,6 +42,7 @@ class Case(BaseModel, Generic[RefsT]):
     metadata: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
     references: RefsT = Field(default_factory=dict)  # type: ignore[assignment]
     sut_input_values: dict[str, Any] = Field(default_factory=dict)
+
 
 class CaseGroup(BaseModel, Generic[RefsT]):
     """Container for a group of test cases."""
