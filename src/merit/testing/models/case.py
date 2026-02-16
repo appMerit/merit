@@ -44,6 +44,34 @@ class Case(BaseModel, Generic[RefsT]):
 
 
 class CaseGroup(BaseModel, Generic[RefsT, GroupRefsT]):
+    """Named collection of related cases with a group-level pass threshold.
+
+    A ``CaseGroup`` bundles several :class:`Case` instances that logically
+    belong together (e.g. the same feature, the same edge-case family) and
+    lets you set how many of them must pass for the whole group to be
+    considered passing via ``min_passes``.
+
+    Use with ``@merit.iter_case_groups(...)`` to iterate a merit function
+    over multiple groups; each group is executed as a nested case-iterated
+    run.
+
+    Attributes
+    ----------
+    name : str
+        Human-readable label that identifies the group in reports and
+        execution trees.
+    cases : list[Case[RefsT]]
+        Ordered list of cases belonging to this group. Must contain at
+        least one case.
+    references : GroupRefsT
+        Group-level reference data shared across all cases in the group,
+        useful for assertions that depend on group context rather than
+        individual case references.
+    min_passes : int
+        Minimum number of cases that must pass for the group to be
+        considered passing. Defaults to ``1``; cannot exceed ``len(cases)``.
+    """
+
     model_config = ConfigDict(validate_default=True, frozen=True)
 
     name: str
