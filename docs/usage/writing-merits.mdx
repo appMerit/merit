@@ -68,7 +68,7 @@ def merit_model_response(model: str, temp: float, chatbot):
     assert response
 ```
 
-**`@merit.iter_cases(*cases)`** - Iterate over `Case` objects from external sources
+**`@merit.iter_cases(*cases, min_passes=len(cases))`** - Iterate over `Case` objects from external sources, optionally allowing pass thresholds
 
 ```python
 import json
@@ -81,6 +81,11 @@ def merit_from_dataset(case: Case, classifier):
     result = classifier(**case.sut_input_values)
     if case.references:
         assert result == case.references["some_ref_value"]
+
+@merit.iter_cases(*cases, min_passes=8)  # Requires at least 8 case passes
+def merit_from_dataset_threshold(case: Case, classifier):
+    result = classifier(**case.sut_input_values)
+    assert result == case.references["some_ref_value"]
 ```
 
 **`@merit.tag(*tags)`** - Organize and filter merits by tags

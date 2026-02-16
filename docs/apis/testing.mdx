@@ -627,7 +627,10 @@ Decorator to run a merit function for each case.
 
 **Signature:**
 ```python
-def iter_cases(*cases: Case[RefsT]) -> Callable[[Callable[..., Any]], Callable[..., Any]]
+def iter_cases(
+    *cases: Case[RefsT],
+    min_passes: int | None = None,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]
 ```
 
 **Parameters:**
@@ -635,8 +638,13 @@ def iter_cases(*cases: Case[RefsT]) -> Callable[[Callable[..., Any]], Callable[.
 | Name | Type | Description |
 |------|------|-------------|
 | `*cases` | `Case[RefsT]` | One or more test cases to iterate over |
+| `min_passes` | `int \| None` | Minimum number of passing case executions required for the parent merit to pass. Defaults to all cases. |
 
 **Returns:** Decorator that applies parametrization using the cases
+
+**Validation:**
+- `min_passes` must be `>= 1`
+- `min_passes` cannot exceed the number of provided `cases`
 
 **Example:**
 ```python
@@ -654,6 +662,11 @@ def merit_from_dataset(case: Case, classifier):
     if case.references:
         expected = case.references["expected_label"]
         assert result == expected
+
+@iter_cases(*cases, min_passes=8)
+def merit_from_dataset_pass_at_k(case: Case, classifier):
+    result = classifier(**case.sut_input_values)
+    assert result in {"positive", "negative", "neutral"}
 ```
 
 ---

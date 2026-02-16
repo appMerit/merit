@@ -26,6 +26,7 @@ class CaseIteratedMeritTest(MeritTest):
     definition: MeritTestDefinition
     params: dict[str, Any]
     cases: tuple[Case[Any], ...]
+    min_passes: int
     factory: TestFactory
 
     def __post_init__(self) -> None:
@@ -50,8 +51,8 @@ class CaseIteratedMeritTest(MeritTest):
 
         sub_executions = await asyncio.gather(*tasks)
 
-        has_failure = any(e.result.status.is_failure for e in sub_executions)
-        status = TestStatus.FAILED if has_failure else TestStatus.PASSED
+        passed = sum(1 for e in sub_executions if e.result.status == TestStatus.PASSED)
+        status = TestStatus.PASSED if passed >= self.min_passes else TestStatus.FAILED
         duration = sum(e.result.duration_ms for e in sub_executions)
 
         return TestExecution(

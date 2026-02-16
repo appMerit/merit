@@ -36,6 +36,7 @@ class CaseIterateModifier:
     """Run the inner execution for each case."""
 
     cases: tuple[Case[Any], ...]
+    min_passes: int
 
 
 Modifier = RepeatModifier | ParametrizeModifier | CaseIterateModifier

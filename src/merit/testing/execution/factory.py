@@ -53,6 +53,7 @@ class DefaultTestFactory(TestFactory):
                     definition=definition,
                     params=params,
                     cases=mod.cases,
+                    min_passes=mod.min_passes,
                     factory=self,
                 )
             case [ParametrizeModifier() as mod, *_]:

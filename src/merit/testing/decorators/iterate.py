@@ -3,13 +3,19 @@ from typing import Any, Callable
 from merit.testing.models import Case, CaseIterateModifier
 
 
-def iter_cases(*cases: Case) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+def iter_cases(
+    *cases: Case,
+    min_passes: int | None = None,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to run a test function for each case in the provided sequence.
 
     Parameters
     ----------
     cases : Sequence[Case]
         The sequence of test cases to iterate over.
+    min_passes : int | None
+        Minimum passed case executions required for parent test to pass.
+        Defaults to all cases.
 
     Returns:
     -------
@@ -23,7 +29,24 @@ def iter_cases(*cases: Case) -> Callable[[Callable[..., Any]], Callable[..., Any
         cases_list = list(cases_list[0])
 
     definition_error = None if cases_list else "iter_cases requires at least one case"
-    modifier = CaseIterateModifier(cases=tuple(cases_list)) if cases_list else None
+    actual_min_passes = len(cases_list)
+
+    if cases_list:
+        actual_min_passes = min_passes if min_passes is not None else len(cases_list)
+
+        if actual_min_passes < 1:
+            raise ValueError(f"min_passes must be >= 1, got {actual_min_passes}")
+
+        if actual_min_passes > len(cases_list):
+            raise ValueError(
+                f"min_passes ({actual_min_passes}) cannot exceed cases count ({len(cases_list)})"
+            )
+
+    modifier = (
+        CaseIterateModifier(cases=tuple(cases_list), min_passes=actual_min_passes)
+        if cases_list
+        else None
+    )
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         if definition_error:
