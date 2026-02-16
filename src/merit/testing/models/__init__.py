@@ -9,12 +9,15 @@ from merit.testing.models.modifiers import (
 )
 from merit.testing.models.result import TestExecution, TestResult, TestStatus
 from merit.testing.models.run import MeritRun, RunEnvironment, RunResult
+from merit.testing.models.case import Case, validate_cases_for_sut
 
 
 # Backwards compatibility alias
 TestItem = MeritTestDefinition
 
 __all__ = [
+    "Case",
+    "validate_cases_for_sut",
     "MeritRun",
     "MeritTestDefinition",
     "Modifier",

@@ -1,8 +1,7 @@
 """Testing framework for AI agents."""
 
 from merit.resources import ResourceResolver, Scope, resource
-from merit.testing.case import Case, iter_cases, validate_cases_for_sut
-from merit.testing.decorators import parametrize, repeat, tag
+from merit.testing.decorators import iter_cases, parametrize, repeat, tag
 from merit.testing.discovery import collect
 from merit.testing.environment import capture_environment
 from merit.testing.execution import (
@@ -16,6 +15,8 @@ from merit.testing.execution import (
     TestTracer,
 )
 from merit.testing.models import (
+    Case,
+    validate_cases_for_sut,
     MeritRun,
     MeritTestDefinition,
     Modifier,

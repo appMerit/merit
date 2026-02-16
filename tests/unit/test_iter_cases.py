@@ -3,8 +3,8 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from merit.testing.case import Case, iter_cases, validate_cases_for_sut
-from merit.testing.models import ParametrizeModifier
+from merit.testing.decorators import iter_cases
+from merit.testing.models import ParametrizeModifier, Case, validate_cases_for_sut
 
 
 def test_case_generic_dict():
