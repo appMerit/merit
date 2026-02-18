@@ -1,5 +1,6 @@
 """Tests for merit.resources module."""
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -370,6 +371,52 @@ class TestForkForCase:
         assert v1 == v2 == 1
         assert call_count == 1
 
+    @pytest.mark.asyncio
+    async def test_concurrent_children_resolve_suite_once(self):
+        create_count = 0
+        teardown_count = 0
+
+        @resource(scope="suite")
+        async def shared_suite():
+            nonlocal create_count, teardown_count
+            create_count += 1
+            await asyncio.sleep(0.02)
+            yield f"suite_{create_count}"
+            teardown_count += 1
+
+        parent = ResourceResolver(get_registry())
+        children = [parent.fork_for_case() for _ in range(8)]
+        values = await asyncio.gather(*[child.resolve("shared_suite") for child in children])
+
+        assert values == ["suite_1"] * len(children)
+        assert create_count == 1
+
+        await parent.teardown()
+        assert teardown_count == 1
+
+    @pytest.mark.asyncio
+    async def test_concurrent_children_resolve_session_once(self):
+        create_count = 0
+        teardown_count = 0
+
+        @resource(scope="session")
+        async def shared_session():
+            nonlocal create_count, teardown_count
+            create_count += 1
+            await asyncio.sleep(0.02)
+            yield f"session_{create_count}"
+            teardown_count += 1
+
+        parent = ResourceResolver(get_registry())
+        children = [parent.fork_for_case() for _ in range(8)]
+        values = await asyncio.gather(*[child.resolve("shared_session") for child in children])
+
+        assert values == ["session_1"] * len(children)
+        assert create_count == 1
+
+        await parent.teardown()
+        assert teardown_count == 1
+
 
 class TestResourceHooks:
     """Tests for on_resolve, on_injection and on_teardown hooks."""
@@ -625,6 +672,20 @@ class TestResourceResolutionErrors:
         resolver = ResourceResolver(get_registry())
         with pytest.raises(RuntimeError, match="Base resource failed"):
             await resolver.resolve("dependent_resource")
+
+    @pytest.mark.asyncio
+    async def test_circular_suite_dependency_raises_error(self):
+        @resource(scope="suite")
+        async def shared_left(shared_right):
+            return shared_right
+
+        @resource(scope="suite")
+        async def shared_right(shared_left):
+            return shared_left
+
+        resolver = ResourceResolver(get_registry())
+        with pytest.raises(RuntimeError, match="Circular resource dependency detected"):
+            await asyncio.wait_for(resolver.resolve("shared_left"), timeout=0.2)
 
     @pytest.mark.asyncio
     async def test_resource_generator_raises_during_yield(self):

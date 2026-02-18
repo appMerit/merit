@@ -26,6 +26,20 @@ class Reporter(ABC):
     async def on_collection_complete(self, items: list[MeritTestDefinition]) -> None:
         """Called after test collection completes."""
 
+    async def on_test_start(self, item: MeritTestDefinition) -> None:
+        """Called before a test starts executing."""
+        _ = item
+        return None
+
+    async def on_subtest_complete(
+        self,
+        parent: MeritTestDefinition,
+        sub_execution: TestExecution,
+    ) -> None:
+        """Called when a subtest execution completes."""
+        _ = parent, sub_execution
+        return None
+
     @abstractmethod
     async def on_test_complete(self, execution: TestExecution) -> None:
         """Called after each test completes."""

@@ -220,3 +220,5 @@ __marimo__/
 
 # Merit local database
 .merit/
+
+.codex/

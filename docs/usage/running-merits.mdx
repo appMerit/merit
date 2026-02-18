@@ -291,11 +291,11 @@ Use `-v` to show per-test lines with durations and detailed sub-results.
 For tests with `@merit.repeat()`, verbose output shows aggregated results:
 
 ```
-  ✓ merit_llm_consistency (1234.5ms) 10/10 passed (≥10 required)
-  ✗ merit_flaky_api (567.8ms) 7/10 passed (≥8 required)
+  ✓ merit_llm_consistency (1234.5ms) PASSED
+  ✗ merit_flaky_api (567.8ms) FAILED
 ```
 
-The individual run results are stored in `result.repeat_runs` but not displayed by default.
+The individual run results are attached to `execution.sub_executions`.
 
 ## Reporter System
 
@@ -312,8 +312,18 @@ class Reporter(ABC):
         """Called when test collection finds no tests."""
 
     @abstractmethod
-    async def on_collection_complete(self, items: list[TestItem]) -> None:
+    async def on_collection_complete(self, items: list[MeritTestDefinition]) -> None:
         """Called after test collection completes."""
+
+    async def on_test_start(self, item: MeritTestDefinition) -> None:
+        """Called before a test starts executing (optional override)."""
+
+    async def on_subtest_complete(
+        self,
+        parent: MeritTestDefinition,
+        sub_execution: TestExecution,
+    ) -> None:
+        """Called when a subtest completes (optional override)."""
 
     @abstractmethod
     async def on_test_complete(self, execution: TestExecution) -> None:
@@ -344,7 +354,8 @@ reporter = ConsoleReporter(verbosity=1)
 
 ### Creating Custom Reporters
 
-Create custom reporters by subclassing `Reporter` and implementing all abstract methods:
+Create custom reporters by subclassing `Reporter` and implementing all abstract methods.
+Override `on_test_start` if you need live in-flight state:
 
 ```python
 from pathlib import Path
@@ -364,6 +375,10 @@ class JsonFileReporter(Reporter):
 
     async def on_collection_complete(self, items: list[MeritTestDefinition]) -> None:
         print(f"Collected {len(items)} tests")
+
+    async def on_test_start(self, item: MeritTestDefinition) -> None:
+        # Optional lifecycle hook for live/in-flight reporting
+        pass
 
     async def on_test_complete(self, execution: TestExecution) -> None:
         # Record each test result
