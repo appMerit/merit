@@ -215,6 +215,46 @@ def merit_mostly_reliable(llm):
 
 ---
 
+### @run_inline
+
+Run a synchronous merit inline on the event-loop thread.
+
+By default, synchronous merits are offloaded to a worker thread via `asyncio.to_thread(...)`. Use `@run_inline` to opt out when thread affinity matters.
+
+**Signature:**
+```python
+@run_inline
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `fn` | `Callable[..., Any]` | Synchronous merit function to mark for inline execution |
+
+**Returns:** Decorated sync function marked to run inline
+
+**Notes:**
+- Applies only to synchronous `def merit_*` functions.
+- `async def merit_*` functions already run on the event-loop thread.
+
+**Example:**
+```python
+import threading
+import merit
+
+def merit_default_threaded():
+    # Default sync behavior: worker thread.
+    assert threading.current_thread() is not threading.main_thread()
+
+@merit.run_inline
+def merit_main_thread_only():
+    # Opt-out: runs inline on main event-loop thread.
+    assert threading.current_thread() is threading.main_thread()
+```
+
+---
+
 ### @tag
 
 Add tags to merit functions or classes for filtering and organization.
@@ -515,6 +555,11 @@ class Runner:
 
     def run_id_exists(self, run_id: UUID | str) -> bool: ...
 ```
+
+**Timeout behavior (`timeout`):**
+- `timeout` is a run-level limit (not per-test).
+- Cancellation is cooperative: on timeout, the run is marked `stopped_early` and no new tests are started.
+- In-flight work may not stop immediately, especially synchronous merits already executing in worker threads.
 
 **Run UUID behavior:**
 - `run_id` accepts either a `UUID` object or UUID string.

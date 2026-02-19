@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import linecache
 import math
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from rich.console import Console, Group
+from rich.console import Console, Group, RenderableType
+from rich.table import Table
+from rich.live import Live
 from rich.markup import escape
 from rich.panel import Panel
 from rich.pretty import Node
+from rich.spinner import Spinner
+from rich.text import Text
 from rich.traceback import Frame, Stack, Trace, Traceback
+from rich.tree import Tree
 
 from merit.context import get_runner
 from merit.reports.base import Reporter
@@ -41,6 +48,23 @@ _STATUS_CONFIG: dict[TestStatus, tuple[str, str, str]] = {
 }
 
 
+@dataclass
+class _LiveTestState:
+    """Tracks the live display state for a single test."""
+
+    item: MeritTestDefinition
+    execution: TestExecution | None = None
+    live_sub_executions: list[TestExecution] = field(default_factory=list)
+
+
+@dataclass
+class _LiveFileState:
+    """Tracks the live display state for a single test file."""
+
+    path: Path
+    tests: list[_LiveTestState] = field(default_factory=list)
+
+
 class ConsoleReporter(Reporter):
     """Reporter that outputs test results to the console using Rich formatting."""
 
@@ -49,6 +73,13 @@ class ConsoleReporter(Reporter):
         self.verbosity = verbosity
         self._failures: list[TestExecution] = []
         self._current_module: Path | None = None
+        self._live: Live | None = None
+        self._live_enabled = False
+        self._file_states: dict[Path, _LiveFileState] = {}
+        self._item_state_lookup: dict[int, _LiveTestState] = {}
+        self._total_tests = 0
+        self._completed_count = 0
+        self._callback_lock = asyncio.Lock()
 
     def _status_symbol(self, status: TestStatus) -> str:
         return _STATUS_CONFIG[status][0]
@@ -106,11 +137,11 @@ class ConsoleReporter(Reporter):
         duration = f"[dim]({result.duration_ms:.1f}ms)[/dim]"
         self.console.print(f"{prefix}{name} {duration} {extra}[{color}]{label}[/{color}]")
 
-    def _print_sub_execution_line(self, sub: TestExecution, indent: int, marker: str) -> None:
+    def _print_sub_execution_line(self, sub: TestExecution, indent: int) -> None:
         suffix = f"\\[{escape(sub.definition.id_suffix)}]" if sub.definition.id_suffix else ""
         color = self._status_color(sub.result.status)
         label = self._status_label(sub.result.status)
-        prefix = " " * indent + marker + " • "
+        prefix = " " * indent + "• "
         duration = f"[dim]({sub.result.duration_ms:.1f}ms)[/dim]"
         self.console.print(f"{prefix}{suffix} {duration} [{color}]{label}[/{color}]")
 
@@ -206,31 +237,218 @@ class ConsoleReporter(Reporter):
             return str(metric.execution_id)[:8]
         return "case"
 
+    def _reset_live_state(self, *, total_tests: int) -> None:
+        if self._live is not None:
+            self._live.stop()
+        self._live = None
+        self._live_enabled = False
+        self._file_states = {}
+        self._item_state_lookup = {}
+        self._total_tests = total_tests
+        self._completed_count = 0
+
+    def _get_or_create_test_state(self, item: MeritTestDefinition) -> _LiveTestState:
+        key = id(item)
+        existing = self._item_state_lookup.get(key)
+        if existing is not None:
+            return existing
+
+        file_state = self._file_states.get(item.module_path)
+        if file_state is None:
+            file_state = _LiveFileState(path=item.module_path)
+            self._file_states[item.module_path] = file_state
+
+        state = _LiveTestState(item=item)
+        file_state.tests.append(state)
+        self._item_state_lookup[key] = state
+        return state
+
+    def _mark_test_started(self, item: MeritTestDefinition) -> None:
+        state = self._get_or_create_test_state(item)
+        state.execution = None
+        state.live_sub_executions = []
+
+    def _mark_test_complete(self, execution: TestExecution) -> None:
+        state = self._get_or_create_test_state(execution.item)
+        if state.execution is None:
+            self._completed_count += 1
+        state.execution = execution
+
+    def _mark_subtest_complete(
+        self, parent: MeritTestDefinition, sub_execution: TestExecution
+    ) -> None:
+        state = self._get_or_create_test_state(parent)
+        state.live_sub_executions.append(sub_execution)
+
+    def _sub_executions_for_state(self, test_state: _LiveTestState) -> list[TestExecution]:
+        if test_state.execution is not None:
+            return test_state.execution.sub_executions
+        return test_state.live_sub_executions
+
+    def _refresh(self) -> None:
+        if self._live is None:
+            return
+        self._live.update(self._build_live_renderable(), refresh=True)
+
+    def _build_live_text_spinner_line(self, text: Text) -> Table:
+        """Render a single live line with trailing spinner."""
+        # Spinner renders before its text; grid keeps label first and spinner last.
+        line = Table.grid(padding=(0, 1))
+        line.add_column()
+        line.add_column(no_wrap=True)
+        line.add_row(text, Spinner("simpleDots", style="bold blue"))
+        return line
+
+    def _build_live_renderable(self) -> RenderableType:
+        if self.verbosity < 0:
+            text = Text.from_markup(
+                f"Running tests... {self._completed_count}/{self._total_tests} completed"
+            )
+            return self._build_live_text_spinner_line(text)
+        if self.verbosity == 0:
+            return self._build_compact_live_renderable()
+        return self._build_verbose_live_renderable()
+
+    def _build_compact_live_renderable(self) -> Group | Text:
+        lines: list[Text] = []
+        for file_state in self._file_states.values():
+            path = self._safe_relative_path(file_state.path)
+            line = Text(f" • {path.as_posix()} ")
+            for test_state in file_state.tests:
+                if test_state.execution is None:
+                    line.append("⋯", style="dim")
+                    continue
+                status = test_state.execution.result.status
+                line.append(self._status_symbol(status), style=self._status_color(status))
+            lines.append(line)
+
+        if not lines:
+            return Text("")
+        return Group(*lines)
+
+    def _build_verbose_live_renderable(self) -> Group | Text:
+        trees: list[Tree] = []
+
+        for file_state in self._file_states.values():
+            path = self._safe_relative_path(file_state.path)
+            tree = Tree(f"• {path.as_posix()}")
+            for test_state in file_state.tests:
+                branch = tree.add(self._build_live_test_line(test_state))
+                sub_executions = self._sub_executions_for_state(test_state)
+                if sub_executions:
+                    self._add_live_sub_executions(branch, sub_executions)
+            trees.append(tree)
+
+        if not trees:
+            return Text("")
+        return Group(*trees)
+
+    def _build_live_test_line(self, test_state: _LiveTestState) -> RenderableType:
+        if test_state.execution is None:
+            text = Text.from_markup(f"{test_state.item.full_name} [dim]⋯ running[/dim]")
+            return self._build_live_text_spinner_line(text)
+
+        execution = test_state.execution
+        result = execution.result
+        color = self._status_color(result.status)
+        label = self._status_label(result.status)
+        extra = self._get_status_extra(result)
+
+        return (
+            f"{test_state.item.full_name} "
+            f"[dim]({result.duration_ms:.1f}ms)[/dim] "
+            f"{extra}[{color}]{label}[/{color}]"
+        )
+
+    def _add_live_sub_executions(self, parent: Tree, sub_executions: list[TestExecution]) -> None:
+        for sub in sub_executions:
+            node = parent
+            if sub.result.status in {TestStatus.PASSED, TestStatus.FAILED, TestStatus.ERROR}:
+                if sub.definition.id_suffix:
+                    suffix = escape(f"[{sub.definition.id_suffix}]")
+                elif sub.execution_id:
+                    suffix = escape(f"[{str(sub.execution_id)[:8]}]")
+                else:
+                    suffix = escape("[case]")
+
+                color = self._status_color(sub.result.status)
+                label = self._status_label(sub.result.status)
+                duration = f"[dim]({sub.result.duration_ms:.1f}ms)[/dim]"
+                node = parent.add(f"{suffix} {duration} [{color}]{label}[/{color}]")
+
+            if sub.sub_executions:
+                self._add_live_sub_executions(node, sub.sub_executions)
+
     async def on_no_tests_found(self) -> None:
         self.console.print("[yellow]No tests found.[/yellow]")
 
     async def on_collection_complete(self, items: list[MeritTestDefinition]) -> None:
-        environment = RunEnvironment()
-        runner = get_runner()
-        run_id = runner.merit_run.run_id if runner and runner.merit_run else None
-        self._print_run_header(environment, run_id)
-        if self.verbosity >= 0:
-            self.console.print(f"[bold]Collected {len(items)} tests[/bold]\n")
+        async with self._callback_lock:
+            self._failures = []
+            self._current_module = None
+            self._reset_live_state(total_tests=len(items))
+
+            runner = get_runner()
+            environment = (
+                runner.merit_run.environment if runner and runner.merit_run else RunEnvironment()
+            )
+            run_id = runner.merit_run.run_id if runner and runner.merit_run else None
+            self._print_run_header(environment, run_id)
+            if self.verbosity >= 0:
+                self.console.print(f"[bold]Collected {len(items)} tests[/bold]\n")
+
+            self._live_enabled = self.console.is_terminal
+            if self._live_enabled:
+                self._live = Live(
+                    self._build_live_renderable(),
+                    console=self.console,
+                    auto_refresh=True,
+                    refresh_per_second=1,
+                    transient=True,
+                    redirect_stdout=False,
+                    redirect_stderr=False,
+                )
+                self._live.start()
+                self._refresh()
+
+    async def on_test_start(self, item: MeritTestDefinition) -> None:
+        async with self._callback_lock:
+            if not self._live_enabled:
+                return
+            self._mark_test_started(item)
+            self._refresh()
+
+    async def on_subtest_complete(
+        self,
+        parent: MeritTestDefinition,
+        sub_execution: TestExecution,
+    ) -> None:
+        async with self._callback_lock:
+            if not self._live_enabled or self.verbosity < 1:
+                return
+            self._mark_subtest_complete(parent, sub_execution)
+            self._refresh()
 
     async def on_test_complete(self, execution: TestExecution) -> None:
-        result = execution.result
-        item = execution.item
+        async with self._callback_lock:
+            result = execution.result
+            item = execution.item
 
-        if result.status in {TestStatus.FAILED, TestStatus.ERROR}:
-            self._failures.append(execution)
+            if result.status in {TestStatus.FAILED, TestStatus.ERROR}:
+                self._failures.append(execution)
 
-        if self.verbosity < 0:
-            return
-        if self.verbosity == 0:
-            self._print_compact_test(item, result)
-            return
+            if self._live_enabled:
+                self._mark_test_complete(execution)
+                self._refresh()
+                return
 
-        self._print_verbose_test(execution)
+            if self.verbosity < 0:
+                return
+            if self.verbosity == 0:
+                self._print_compact_test(item, result)
+                return
+
+            self._print_verbose_test(execution)
 
     def _print_compact_test(self, item: MeritTestDefinition, result: TestResult) -> None:
         color = self._status_color(result.status)
@@ -251,14 +469,8 @@ class ConsoleReporter(Reporter):
             self._print_file_header(item.module_path)
 
         if execution.sub_executions:
-            passed_count = sum(
-                1 for e in execution.sub_executions if e.result.status == TestStatus.PASSED
-            )
-            total_count = len(execution.sub_executions)
-            color = self._status_color(result.status)
-            extra = f"[{color}]{passed_count}/{total_count} passed[/{color}] "
-            self._print_test_line(item.full_name, result, extra=extra)
-            self._print_sub_executions(execution.sub_executions, indent=4, marker="↳")
+            self._print_test_line(item.full_name, result)
+            self._print_sub_executions(execution.sub_executions, indent=4)
             return
 
         extra = self._get_status_extra(result)
@@ -275,28 +487,32 @@ class ConsoleReporter(Reporter):
             return "[dim]XPASS[/dim] "
         return ""
 
-    def _print_sub_executions(
-        self, sub_executions: list[TestExecution], indent: int, marker: str
-    ) -> None:
+    def _print_sub_executions(self, sub_executions: list[TestExecution], indent: int) -> None:
         for sub in sub_executions:
             if sub.result.status in {TestStatus.PASSED, TestStatus.FAILED, TestStatus.ERROR}:
-                self._print_sub_execution_line(sub, indent, marker)
+                self._print_sub_execution_line(sub, indent)
             if sub.sub_executions:
-                self._print_sub_executions(sub.sub_executions, indent + 2, marker)
+                self._print_sub_executions(sub.sub_executions, indent + 2)
 
     async def on_run_complete(self, merit_run: MeritRun) -> None:
-        result = merit_run.result
-        if self.verbosity == 0 and self._current_module is not None:
-            self.console.print()
+        async with self._callback_lock:
+            if self._live is not None:
+                self._live.stop()
+                self._live = None
+                self._live_enabled = False
 
-        if self.verbosity != 0 and self._failures:
-            self._print_failures()
+            result = merit_run.result
+            if self.verbosity == 0 and self._current_module is not None:
+                self.console.print()
 
-        if result.stopped_early:
-            self.console.print("[yellow]Run terminated early.[/yellow]")
+            if self.verbosity != 0 and self._failures:
+                self._print_failures()
 
-        self._print_metric_results(result.metric_results)
-        self._print_summary(merit_run)
+            if result.stopped_early:
+                self.console.print("[yellow]Run terminated early.[/yellow]")
+
+            self._print_metric_results(result.metric_results)
+            self._print_summary(merit_run)
 
     def _print_failures(self) -> None:
         self.console.print()
@@ -423,7 +639,7 @@ class ConsoleReporter(Reporter):
             for metric in grouped[metric_name]:
                 case_label = escape(f"[{self._get_case_label(metric)}]")
                 stats = self._format_metric_value(metric)
-                self._print_metric_row(f"↳ {case_label}", stats, indent=4)
+                self._print_metric_row(case_label, stats, indent=4)
 
     async def on_run_stopped_early(self, failure_count: int) -> None:
         self.console.print(f"\n\n[red]Stopping early after {failure_count} failure(s).[/red]")

@@ -1,7 +1,14 @@
 """Testing framework for AI agents."""
 
 from merit.resources import ResourceResolver, Scope, resource
-from merit.testing.decorators import iter_case_groups, iter_cases, parametrize, repeat, tag
+from merit.testing.decorators import (
+    iter_case_groups,
+    iter_cases,
+    parametrize,
+    repeat,
+    run_inline,
+    tag,
+)
 from merit.testing.discovery import collect
 from merit.testing.environment import capture_environment
 from merit.testing.execution import (
@@ -77,6 +84,7 @@ __all__ = [
     "parametrize",
     "repeat",
     "resource",
+    "run_inline",
     "skip",
     "tag",
     "xfail",

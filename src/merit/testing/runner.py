@@ -114,8 +114,28 @@ class Runner:
     async def _notify_collection_complete(self, items: list[MeritTestDefinition]) -> None:
         await asyncio.gather(*[r.on_collection_complete(items) for r in self.reporters])
 
+    async def _notify_test_start(self, item: MeritTestDefinition) -> None:
+        await asyncio.gather(*[r.on_test_start(item) for r in self.reporters])
+
+    async def _notify_subtest_complete(
+        self,
+        parent: MeritTestDefinition,
+        sub_execution: TestExecution,
+    ) -> None:
+        await asyncio.gather(
+            *[r.on_subtest_complete(parent, sub_execution) for r in self.reporters]
+        )
+
     async def _notify_test_complete(self, execution: TestExecution) -> None:
         await asyncio.gather(*[r.on_test_complete(execution) for r in self.reporters])
+
+    async def notify_subtest_complete(
+        self,
+        parent: MeritTestDefinition,
+        sub_execution: TestExecution,
+    ) -> None:
+        """Public callback for execution strategies to stream subtest updates."""
+        await self._notify_subtest_complete(parent, sub_execution)
 
     async def _notify_run_complete(self, merit_run: MeritRun) -> None:
         await asyncio.gather(*[r.on_run_complete(merit_run) for r in self.reporters])
@@ -315,6 +335,7 @@ class Runner:
         for item in items:
             if self.stop_flag:
                 break
+            await self._notify_test_start(item)
             execution = await self._execute_item(item, resolver)
             await self._notify_test_complete(execution)
 
@@ -332,35 +353,43 @@ class Runner:
         self, items: list[MeritTestDefinition], resolver: ResourceResolver, merit_run: MeritRun
     ) -> None:
         """Run tests concurrently."""
-        lock = asyncio.Lock()
+        state_lock = asyncio.Lock()
         failures = 0
         results: list[TestExecution | None] = [None] * len(items)
 
         async def run_one(idx: int, item: MeritTestDefinition) -> None:
             nonlocal failures
 
-            if self.stop_flag:
-                return
+            async with state_lock:
+                if self.stop_flag:
+                    return
 
+            await self._notify_test_start(item)
             execution = await self._execute_item(item, resolver)
 
-            if execution.result.status.is_failure:
-                async with lock:
+            async with state_lock:
+                results[idx] = execution
+                if execution.result.status.is_failure:
                     failures += 1
                     if self.maxfail and failures >= self.maxfail:
                         self.stop_flag = True
                         merit_run.result.stopped_early = True
 
-            results[idx] = execution
+            await self._notify_test_complete(execution)
 
-        await asyncio.gather(
+        task_results = await asyncio.gather(
             *[run_one(i, item) for i, item in enumerate(items)], return_exceptions=True
         )
+
+        task_errors = [result for result in task_results if isinstance(result, Exception)]
+        if task_errors:
+            if len(task_errors) == 1:
+                raise task_errors[0]
+            raise ExceptionGroup("Concurrent test callbacks failed", task_errors)
 
         for execution in results:
             if execution is not None:
                 merit_run.result.executions.append(execution)
-                await self._notify_test_complete(execution)
 
         if merit_run.result.stopped_early and self.maxfail:
             await self._notify_run_stopped_early(self.maxfail)
