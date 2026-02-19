@@ -66,6 +66,7 @@ class ParametrizedMeritTest(MeritTest):
             for task in tasks:
                 if not task.done():
                     task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
             raise
 
         ordered_sub_executions = [

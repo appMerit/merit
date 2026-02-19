@@ -11,11 +11,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from rich.console import Console, Group
+from rich.console import Console, Group, RenderableType
+from rich.table import Table
 from rich.live import Live
 from rich.markup import escape
 from rich.panel import Panel
 from rich.pretty import Node
+from rich.spinner import Spinner
 from rich.text import Text
 from rich.traceback import Frame, Stack, Trace, Traceback
 from rich.tree import Tree
@@ -288,11 +290,21 @@ class ConsoleReporter(Reporter):
             return
         self._live.update(self._build_live_renderable(), refresh=True)
 
-    def _build_live_renderable(self) -> Group | Text:
+    def _build_live_text_spinner_line(self, text: Text) -> Table:
+        """Render a single live line with trailing spinner."""
+        # Spinner renders before its text; grid keeps label first and spinner last.
+        line = Table.grid(padding=(0, 1))
+        line.add_column()
+        line.add_column(no_wrap=True)
+        line.add_row(text, Spinner("simpleDots", style="bold blue"))
+        return line
+
+    def _build_live_renderable(self) -> RenderableType:
         if self.verbosity < 0:
-            return Text.from_markup(
-                f"Running tests... {self._completed_count}/{self._total_tests} complete"
+            text = Text.from_markup(
+                f"Running tests... {self._completed_count}/{self._total_tests} completed"
             )
+            return self._build_live_text_spinner_line(text)
         if self.verbosity == 0:
             return self._build_compact_live_renderable()
         return self._build_verbose_live_renderable()
@@ -331,9 +343,10 @@ class ConsoleReporter(Reporter):
             return Text("")
         return Group(*trees)
 
-    def _build_live_test_line(self, test_state: _LiveTestState) -> str:
+    def _build_live_test_line(self, test_state: _LiveTestState) -> RenderableType:
         if test_state.execution is None:
-            return f"{test_state.item.full_name} [dim]⋯ running[/dim]"
+            text = Text.from_markup(f"{test_state.item.full_name} [dim]⋯ running[/dim]")
+            return self._build_live_text_spinner_line(text)
 
         execution = test_state.execution
         result = execution.result
@@ -389,9 +402,9 @@ class ConsoleReporter(Reporter):
                 self._live = Live(
                     self._build_live_renderable(),
                     console=self.console,
-                    auto_refresh=False,
-                    refresh_per_second=10,
-                    transient=False,
+                    auto_refresh=True,
+                    refresh_per_second=1,
+                    transient=True,
                     redirect_stdout=False,
                     redirect_stderr=False,
                 )
