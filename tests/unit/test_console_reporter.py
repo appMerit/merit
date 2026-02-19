@@ -4,7 +4,8 @@ import io
 from pathlib import Path
 
 import pytest
-from rich.console import Console
+from rich.console import Console, Group
+from rich.table import Table
 
 from merit.reports.console import ConsoleReporter
 from merit.testing.models import MeritRun, TestExecution, TestItem, TestResult, TestStatus
@@ -147,6 +148,45 @@ async def test_compact_live_symbols_replace_running_marker(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_compact_live_shows_spinner_while_running(monkeypatch):
+    monkeypatch.setattr("merit.reports.console.Live", FakeLive)
+    FakeLive.instances.clear()
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=True, color_system=None, width=120)
+    reporter = ConsoleReporter(console=console, verbosity=0)
+
+    item = make_item("test_login", "tests/test_auth.py")
+
+    await reporter.on_collection_complete([item])
+    await reporter.on_test_start(item)
+    running_renderable = FakeLive.instances[-1].renderables[-1]
+
+    assert isinstance(running_renderable, Group)
+    assert isinstance(running_renderable.renderables[0], Table)
+
+    await reporter.on_test_complete(make_execution(item, TestStatus.PASSED, 15.0))
+    done_renderable = FakeLive.instances[-1].renderables[-1]
+    assert isinstance(done_renderable, Group)
+    assert not isinstance(done_renderable.renderables[0], Table)
+
+
+@pytest.mark.asyncio
+async def test_live_uses_non_transient_rendering(monkeypatch):
+    monkeypatch.setattr("merit.reports.console.Live", FakeLive)
+    FakeLive.instances.clear()
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=True, color_system=None, width=120)
+    reporter = ConsoleReporter(console=console, verbosity=0)
+
+    item = make_item("test_login", "tests/test_auth.py")
+    await reporter.on_collection_complete([item])
+
+    assert FakeLive.instances[-1].transient is False
+
+
+@pytest.mark.asyncio
 async def test_quiet_live_progress_counter(monkeypatch):
     monkeypatch.setattr("merit.reports.console.Live", FakeLive)
     FakeLive.instances.clear()
@@ -280,6 +320,35 @@ async def test_verbose_live_streams_subtests_before_parent_completion(monkeypatc
     assert "running" in text
     assert "case=1" in text
     assert "↳" not in text
+
+
+@pytest.mark.asyncio
+async def test_verbose_live_does_not_create_orphan_state_from_derived_parent(monkeypatch):
+    monkeypatch.setattr("merit.reports.console.Live", FakeLive)
+    FakeLive.instances.clear()
+
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=True, color_system=None, width=120)
+    reporter = ConsoleReporter(console=console, verbosity=1)
+
+    parent = make_item("test_matrix", "tests/test_matrix.py")
+    derived_parent = make_item("test_matrix", "tests/test_matrix.py", id_suffix="group=alpha")
+    case_one = make_item("test_matrix", "tests/test_matrix.py", id_suffix="case=1")
+    sub_execution = make_execution(case_one, TestStatus.PASSED, 8.0)
+
+    await reporter.on_collection_complete([parent])
+    await reporter.on_test_start(parent)
+    await reporter.on_subtest_complete(derived_parent, sub_execution)
+
+    running_text = render_to_text(FakeLive.instances[-1].renderables[-1])
+    assert running_text.count("test_matrix::test_matrix") == 1
+
+    await reporter.on_test_complete(
+        make_execution(parent, TestStatus.PASSED, 10.0, sub_executions=[sub_execution])
+    )
+    done_text = render_to_text(FakeLive.instances[-1].renderables[-1])
+    assert done_text.count("test_matrix::test_matrix") == 1
+    assert "running" not in done_text
 
 
 @pytest.mark.asyncio

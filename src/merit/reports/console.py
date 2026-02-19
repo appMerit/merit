@@ -77,6 +77,7 @@ class ConsoleReporter(Reporter):
         self._live_enabled = False
         self._file_states: dict[Path, _LiveFileState] = {}
         self._item_state_lookup: dict[int, _LiveTestState] = {}
+        self._item_state_lookup_by_name: dict[tuple[str, str, str], _LiveTestState] = {}
         self._total_tests = 0
         self._completed_count = 0
         self._callback_lock = asyncio.Lock()
@@ -244,12 +245,30 @@ class ConsoleReporter(Reporter):
         self._live_enabled = False
         self._file_states = {}
         self._item_state_lookup = {}
+        self._item_state_lookup_by_name = {}
         self._total_tests = total_tests
         self._completed_count = 0
 
+    def _item_state_key(self, item: MeritTestDefinition) -> tuple[str, str, str]:
+        return (
+            str(item.module_path),
+            item.class_name or "",
+            item.name,
+        )
+
+    def _lookup_test_state(self, item: MeritTestDefinition) -> _LiveTestState | None:
+        by_id = self._item_state_lookup.get(id(item))
+        if by_id is not None:
+            return by_id
+
+        by_name = self._item_state_lookup_by_name.get(self._item_state_key(item))
+        if by_name is not None:
+            self._item_state_lookup[id(item)] = by_name
+            return by_name
+        return None
+
     def _get_or_create_test_state(self, item: MeritTestDefinition) -> _LiveTestState:
-        key = id(item)
-        existing = self._item_state_lookup.get(key)
+        existing = self._lookup_test_state(item)
         if existing is not None:
             return existing
 
@@ -260,7 +279,8 @@ class ConsoleReporter(Reporter):
 
         state = _LiveTestState(item=item)
         file_state.tests.append(state)
-        self._item_state_lookup[key] = state
+        self._item_state_lookup[id(item)] = state
+        self._item_state_lookup_by_name[self._item_state_key(item)] = state
         return state
 
     def _mark_test_started(self, item: MeritTestDefinition) -> None:
@@ -277,7 +297,9 @@ class ConsoleReporter(Reporter):
     def _mark_subtest_complete(
         self, parent: MeritTestDefinition, sub_execution: TestExecution
     ) -> None:
-        state = self._get_or_create_test_state(parent)
+        state = self._lookup_test_state(parent)
+        if state is None:
+            return
         state.live_sub_executions.append(sub_execution)
 
     def _sub_executions_for_state(self, test_state: _LiveTestState) -> list[TestExecution]:
@@ -310,17 +332,22 @@ class ConsoleReporter(Reporter):
         return self._build_verbose_live_renderable()
 
     def _build_compact_live_renderable(self) -> Group | Text:
-        lines: list[Text] = []
+        lines: list[RenderableType] = []
         for file_state in self._file_states.values():
             path = self._safe_relative_path(file_state.path)
             line = Text(f" • {path.as_posix()} ")
+            has_running = False
             for test_state in file_state.tests:
                 if test_state.execution is None:
+                    has_running = True
                     line.append("⋯", style="dim")
                     continue
                 status = test_state.execution.result.status
                 line.append(self._status_symbol(status), style=self._status_color(status))
-            lines.append(line)
+            if has_running:
+                lines.append(self._build_live_text_spinner_line(line))
+            else:
+                lines.append(line)
 
         if not lines:
             return Text("")
@@ -404,7 +431,7 @@ class ConsoleReporter(Reporter):
                     console=self.console,
                     auto_refresh=True,
                     refresh_per_second=1,
-                    transient=True,
+                    transient=False,
                     redirect_stdout=False,
                     redirect_stderr=False,
                 )
