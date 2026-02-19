@@ -53,7 +53,9 @@ def build():
     index = ImportIndex(source, "pkg.module", Path("/repo/pkg/module.py"))
 
     assert index.get_module_level("dep") == ImportBinding(module_name="top.dep")
-    assert index.get_module_level("alias") == ImportBinding(module_name="pkg.deep", imported_name="thing")
+    assert index.get_module_level("alias") == ImportBinding(
+        module_name="pkg.deep", imported_name="thing"
+    )
     assert index.get_function_level("build", "local_dep") == ImportBinding(module_name="inner.mod")
     assert index.local_functions == {"build"}
     assert index.all_module_imports() == {"top.dep", "pkg.deep"}

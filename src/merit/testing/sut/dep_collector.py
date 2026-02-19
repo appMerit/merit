@@ -133,7 +133,9 @@ class ImportIndex:
                 resolved = _resolve_from_import(node, module_name, module_file)
                 for alias in node.names:
                     if alias.name != "*":
-                        results.append((alias.asname or alias.name, ImportBinding(resolved, alias.name)))
+                        results.append(
+                            (alias.asname or alias.name, ImportBinding(resolved, alias.name))
+                        )
         return results
 
 
@@ -159,7 +161,9 @@ class ModuleAnalyzer:
 
         return {binding.module_name for binding in self.reachable_bindings(targets, index)}
 
-    def reachable_bindings(self, targets: set[str] | None, index: ImportIndex) -> set[ImportBinding]:
+    def reachable_bindings(
+        self, targets: set[str] | None, index: ImportIndex
+    ) -> set[ImportBinding]:
         """Compute imported modules reachable from a symbol set.
 
         Parameters
