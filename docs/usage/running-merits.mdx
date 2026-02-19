@@ -277,6 +277,12 @@ run_id: 3f5f5e9a-1c2d-4b5f-9c2b-7f6d8a9b0c1d | 6 passed, 1 failed, 1 errors, 1 s
 
 Use `-v` to show per-test lines with durations and detailed sub-results.
 
+<Warning>
+When using `ConsoleReporter` live mode (internally implemented with Rich Live), very long verbose output can exceed the terminal's vertical render limit.
+In that case, live in-flight updates may appear to stop until the run finishes, which is more likely with many iterated/case-grouped subtests at `-v`/`-vv`.
+No result data is lost: Merit still records everything and prints the full output at run completion.
+</Warning>
+
 **Status symbols**:
 - `✓` (green): PASSED - Test succeeded
 - `✗` (red): FAILED - Assertion failed
