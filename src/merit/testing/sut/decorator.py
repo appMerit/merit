@@ -12,6 +12,7 @@ import os
 from collections.abc import Callable
 from typing import Any, ParamSpec, TypeVar
 
+
 from merit.resources import Scope, resource
 from merit.tracing import get_tracer
 
@@ -60,6 +61,7 @@ def sut(
     factory_name = fn.__name__
 
     def on_resolve(sut_instance: Any) -> Any:
+        # TODO: Register SUT in the DB with dependencies
         match sut_instance:
             case types.FunctionType() | types.MethodType() | functools.partial():
                 return _trace_callable(sut_instance, sut_name=factory_name)
@@ -143,6 +145,9 @@ def _trace_instance_method(instance: Any, *, sut_name: str, method: str) -> Any:
 
     setattr(instance, method, traced)
     return instance
+
+
+# Trace helpers
 
 
 def _set_input_attrs(span: Any, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
