@@ -16,6 +16,7 @@ This page focuses on **how to write merits** and (importantly) **where the behav
 | `@pytest.mark.skip(...)` | `@merit.tag.skip(...)` |
 | `@pytest.mark.xfail(...)` | `@merit.tag.xfail(...)` |
 | `@pytest.mark.repeat(3)` | `@merit.repeat(3)` |
+| N/A | `@merit.run_inline` |
 
 ## Merits
 
@@ -127,6 +128,23 @@ def merit_consistent(llm):
 @merit.repeat(10, min_passes=8)  # 8 out of 10
 def merit_mostly_correct(llm):
     assert "hola" in llm.generate("Say hello in Spanish")
+```
+
+**`@merit.run_inline`** - Opt out of default threaded execution for sync merits
+
+By default, synchronous merits (`def merit_*`) run in a worker thread via `asyncio.to_thread(...)` so the event loop stays responsive. Use `@merit.run_inline` when a sync merit must run on the main event-loop thread (for example, thread-sensitive libraries).
+
+```python
+import threading
+
+def merit_default_threaded():
+    # Runs in a worker thread by default.
+    assert threading.current_thread() is not threading.main_thread()
+
+@merit.run_inline
+def merit_main_thread_only():
+    # Runs inline on the event-loop thread.
+    assert threading.current_thread() is threading.main_thread()
 ```
 
 ## Resources

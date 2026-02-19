@@ -108,6 +108,8 @@ merit test --concurrency 0
 - **Concurrent (>1)**: Faster runs for independent tests. Use with stateless SUTs.
 - **Unlimited (0)**: Maximum parallelism for large test suites.
 
+For synchronous merits (`def merit_*`), Merit runs test bodies in worker threads by default to keep the event loop responsive. Use `@merit.run_inline` on a sync merit when it must run on the main event-loop thread.
+
 ### Timeout
 
 Set a global timeout for the entire test run:
@@ -118,6 +120,8 @@ merit test --timeout 300
 ```
 
 The timeout applies to the entire test session, not individual tests.
+
+Timeout is cooperative: when the timeout is reached, Merit marks the run as stopped early and stops starting new tests, but in-flight work may not stop immediately (especially synchronous merits already running in worker threads).
 
 ### Verbosity
 
