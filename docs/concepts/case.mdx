@@ -148,10 +148,13 @@ import merit
 from merit import Case
 
 
-@merit.sut(validate_cases=[
+cases = [
     Case(sut_input_values={"prompt": "Hello", "temperature": 0.5}),
     Case(sut_input_values={"prompt": "Hi"}),
-])
+]
+
+
+@merit.sut(validate_cases=cases)
 def my_agent():
     def run(prompt: str, temperature: float = 0.7) -> str:
         return f"{prompt} @ {temperature}"
@@ -159,13 +162,8 @@ def my_agent():
     return run
 
 
-cases = [
-    Case(sut_input_values={"prompt": "Hello", "temperature": 0.5}),
-    Case(sut_input_values={"prompt": "Hi"}),
-]
-
 @merit.iter_cases(*cases)
-def merit_my_agent(case: Case):
+def merit_my_agent(case: Case, my_agent):
     my_agent(**case.sut_input_values)
 ```
 

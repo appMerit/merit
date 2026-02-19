@@ -16,7 +16,7 @@ from merit.resources import Scope, resource
 from merit.testing.models.case import Case
 from merit.tracing import get_tracer
 from pydantic.experimental.arguments_schema import generate_arguments_schema
-from pydantic_core import ArgsKwargs, SchemaValidator, ValidationError
+from pydantic_core import ArgsKwargs, SchemaValidator
 
 
 P = ParamSpec("P")
