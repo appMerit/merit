@@ -2,4 +2,4 @@ from .dep_collector import DependencyCollectionMode, DependencyEntry, collect_de
 from .decorator import sut
 
 
-__all__ = ["sut", "collect_dependencies", "DependencyEntry", "DependencyCollectionMode"]
+__all__ = ["DependencyCollectionMode", "DependencyEntry", "collect_dependencies", "sut"]

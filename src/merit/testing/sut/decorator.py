@@ -15,7 +15,6 @@ from typing import Any, ParamSpec, TypeVar
 
 from merit.resources import Scope, resource
 from merit.tracing import get_tracer
-from merit.testing.sut.dep_collector import collect_dependencies, DependencyEntry
 
 
 P = ParamSpec("P")
@@ -60,7 +59,6 @@ def sut(
         """)
 
     factory_name = fn.__name__
-    deps = collect_dependencies(fn, mode="symbol")
 
     def on_resolve(sut_instance: Any) -> Any:
         # TODO: Register SUT in the DB with dependencies

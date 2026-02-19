@@ -9,6 +9,7 @@ import pytest
 from merit.testing.sut.dep_collector import (
     DependencyCollectionMode,
     DependencyCollector,
+    ImportBinding,
     ImportIndex,
     ModuleAnalyzer,
     ModuleResolver,
@@ -51,9 +52,9 @@ def build():
 """
     index = ImportIndex(source, "pkg.module", Path("/repo/pkg/module.py"))
 
-    assert index.get_module_level("dep") == "top.dep"
-    assert index.get_module_level("alias") == "pkg.deep"
-    assert index.get_function_level("build", "local_dep") == "inner.mod"
+    assert index.get_module_level("dep") == ImportBinding(module_name="top.dep")
+    assert index.get_module_level("alias") == ImportBinding(module_name="pkg.deep", imported_name="thing")
+    assert index.get_function_level("build", "local_dep") == ImportBinding(module_name="inner.mod")
     assert index.local_functions == {"build"}
     assert index.all_module_imports() == {"top.dep", "pkg.deep"}
 
@@ -127,6 +128,30 @@ def test_module_resolver_resolves_repo_local_module(monkeypatch: pytest.MonkeyPa
     assert resolver.resolve("pkg.mod") == Path("/repo/pkg/mod.py")
 
 
+def test_module_resolver_cache_is_instance_local(monkeypatch: pytest.MonkeyPatch):
+    repo_root = Path("/repo")
+    first = ModuleResolver(repo_root)
+    second = ModuleResolver(repo_root)
+    local_spec = SimpleNamespace(has_location=True, origin="/repo/pkg/mod.py")
+    calls = 0
+
+    def fake_find_spec(module_name: str):
+        nonlocal calls
+        calls += 1
+        assert module_name == "pkg.mod"
+        return local_spec
+
+    monkeypatch.setattr(
+        "merit.testing.sut.dep_collector.importlib.util.find_spec",
+        fake_find_spec,
+    )
+
+    assert first.resolve("pkg.mod") == Path("/repo/pkg/mod.py")
+    assert first.resolve("pkg.mod") == Path("/repo/pkg/mod.py")
+    assert second.resolve("pkg.mod") == Path("/repo/pkg/mod.py")
+    assert calls == 2
+
+
 def test_dependency_collector_module_mode_enqueues_parent_packages(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -142,7 +167,7 @@ def test_dependency_collector_module_mode_enqueues_parent_packages(
     graph = {
         "pkg": set(),
         "pkg.sub": set(),
-        "pkg.sub.mod": {"pkg.sub.dep"},
+        "pkg.sub.mod": {ImportBinding("pkg.sub.dep")},
         "pkg.sub.dep": set(),
     }
 
@@ -153,7 +178,9 @@ def test_dependency_collector_module_mode_enqueues_parent_packages(
         def __init__(self, module_name: str) -> None:
             self.module_name = module_name
 
-        def reachable_modules(self, targets: set[str] | None, index: ImportIndex) -> set[str]:
+        def reachable_bindings(
+            self, targets: set[str] | None, index: ImportIndex
+        ) -> set[ImportBinding]:
             assert index is not None
             return graph[self.module_name]
 
@@ -187,7 +214,7 @@ def test_dependency_collector_symbol_mode_uses_seed_symbol_only_once(
         "pkg.dep": Path("/repo/pkg/dep.py"),
     }
     graph = {
-        "pkg.mod": {"pkg.dep"},
+        "pkg.mod": {ImportBinding("pkg.dep", "dep_entrypoint")},
         "pkg.dep": set(),
     }
     calls: list[tuple[str, set[str] | None]] = []
@@ -196,7 +223,12 @@ def test_dependency_collector_symbol_mode_uses_seed_symbol_only_once(
         def __init__(self, module_name: str) -> None:
             self.module_name = module_name
 
-        def reachable_modules(self, targets: set[str] | None, index: ImportIndex) -> set[str]:
+        def missing_module_symbols(self, names: set[str]) -> set[str]:
+            return set()
+
+        def reachable_bindings(
+            self, targets: set[str] | None, index: ImportIndex
+        ) -> set[ImportBinding]:
             assert index is not None
             calls.append((self.module_name, targets))
             return graph[self.module_name]
@@ -221,7 +253,7 @@ def test_dependency_collector_symbol_mode_uses_seed_symbol_only_once(
     )
 
     assert [dep.module_name for dep in deps] == ["pkg.dep", "pkg.mod"]
-    assert calls == [("pkg.mod", {"entrypoint"}), ("pkg.dep", None)]
+    assert calls == [("pkg.mod", {"entrypoint"}), ("pkg.dep", {"dep_entrypoint"})]
 
 
 def test_dependency_collector_symbol_mode_handles_cycles_and_duplicate_edges(
@@ -236,9 +268,9 @@ def test_dependency_collector_symbol_mode_handles_cycles_and_duplicate_edges(
         "pkg.c": Path("/repo/pkg/c.py"),
     }
     graph = {
-        "pkg.a": {"pkg.b", "pkg.c"},
-        "pkg.b": {"pkg.a", "pkg.c"},
-        "pkg.c": {"pkg.b"},
+        "pkg.a": {ImportBinding("pkg.b"), ImportBinding("pkg.c")},
+        "pkg.b": {ImportBinding("pkg.a"), ImportBinding("pkg.c")},
+        "pkg.c": {ImportBinding("pkg.b")},
     }
     calls: list[str] = []
 
@@ -246,7 +278,12 @@ def test_dependency_collector_symbol_mode_handles_cycles_and_duplicate_edges(
         def __init__(self, module_name: str) -> None:
             self.module_name = module_name
 
-        def reachable_modules(self, targets: set[str] | None, index: ImportIndex) -> set[str]:
+        def missing_module_symbols(self, names: set[str]) -> set[str]:
+            return set()
+
+        def reachable_bindings(
+            self, targets: set[str] | None, index: ImportIndex
+        ) -> set[ImportBinding]:
             assert index is not None
             calls.append(self.module_name)
             return graph[self.module_name]
@@ -271,7 +308,46 @@ def test_dependency_collector_symbol_mode_handles_cycles_and_duplicate_edges(
     )
 
     assert [dep.module_name for dep in deps] == ["pkg.a", "pkg.b", "pkg.c"]
-    assert sorted(calls) == ["pkg.a", "pkg.b", "pkg.c"]
+    assert sorted(set(calls)) == ["pkg.a", "pkg.b", "pkg.c"]
+
+
+def test_dependency_collector_symbol_mode_falls_back_to_submodule_when_symbol_missing(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    repo_root = Path("/repo")
+    collector = DependencyCollector(repo_root)
+
+    module_files = {
+        "pkg.seed": Path("/repo/pkg/seed.py"),
+        "pkg": Path("/repo/pkg/__init__.py"),
+        "pkg.value": Path("/repo/pkg/value.py"),
+    }
+    source_by_module = {
+        "pkg.seed": "from pkg import value\n\n\ndef entrypoint():\n    return value.VALUE\n",
+        "pkg": "SOMETHING = 1\n",
+        "pkg.value": "VALUE = 1\n",
+    }
+
+    monkeypatch.setattr(
+        collector._resolver, "resolve", lambda module_name: module_files.get(module_name)
+    )
+    monkeypatch.setattr(
+        collector,
+        "_load",
+        lambda file_path, module_name: (
+            ImportIndex(source_by_module[module_name], module_name, file_path),
+            ModuleAnalyzer(source_by_module[module_name], str(file_path)),
+        ),
+    )
+
+    deps = collector.collect(
+        seed_module="pkg.seed",
+        seed_file=module_files["pkg.seed"],
+        mode=DependencyCollectionMode.SYMBOL,
+        seed_symbol="entrypoint",
+    )
+
+    assert [dep.module_name for dep in deps] == ["pkg", "pkg.seed", "pkg.value"]
 
 
 def test_dependency_collector_load_caches_by_file_path(
@@ -344,7 +420,7 @@ def test_collect_dependencies_requires_owner_module(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr("merit.testing.sut.dep_collector.inspect.getmodule", lambda _: None)
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         collect_dependencies(entrypoint)
 
 
@@ -355,7 +431,7 @@ def test_collect_dependencies_requires_owner_file(monkeypatch: pytest.MonkeyPatc
     fake_module = SimpleNamespace(__name__="pkg.module")
     monkeypatch.setattr("merit.testing.sut.dep_collector.inspect.getmodule", lambda _: fake_module)
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         collect_dependencies(entrypoint)
 
 
