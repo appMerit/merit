@@ -74,6 +74,7 @@ Register a function factory as a traced system-under-test resource.
     *,
     scope: Scope | str = Scope.CASE,
     method: str = "__call__",
+    validate_cases: list[Case[Any]] | None = None,
 )
 ```
 
@@ -84,6 +85,7 @@ Register a function factory as a traced system-under-test resource.
 | `fn` | `Callable \| None` | `None` | The SUT factory function to register |
 | `scope` | `Scope \| str` | `Scope.CASE` | Resource lifecycle scope: `"case"`, `"suite"`, `"session"` |
 | `method` | `str` | `"__call__"` | Method to trace when the factory returns a non-callable instance |
+| `validate_cases` | `list[Case[Any]] \| None` | `None` | Cases to validate against the resolved SUT signature (raises on invalid input) |
 
 **Returns:** Decorated function registered as a traced resource
 
@@ -102,6 +104,15 @@ def rag():
 def agent():
     agent = Agent(tools="all")
     return agent
+
+cases = [
+    merit.Case(sut_input_values={"query": "Privacy policy"}),
+    merit.Case(sut_input_values={"query": "How do you store data?"}),
+]
+
+@merit.sut(validate_cases=cases)
+def search_agent():
+    return retrieve
 
 def merit_test(agent, rag):
     # Resolved values behave like original callable/instance APIs
@@ -418,6 +429,64 @@ case = Case[MyRefs](
 
 ---
 
+### CaseGroup
+
+Container for grouping related cases with group-level references and a pass threshold.
+
+**Type Parameters:**
+
+| Name | Default | Description |
+|------|---------|-------------|
+| `RefsT` | `dict[str, Any]` | Type of each case's `references` |
+| `GroupRefsT` | `dict[str, Any]` | Type of the group's `references` |
+
+**Attributes:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `name` | `str` | Unique group identifier (used in reports and ID suffixes) |
+| `cases` | `list[Case[RefsT]]` | One or more cases in this group (min 1) |
+| `references` | `GroupRefsT` | Group-level reference data, defaults to `{}` |
+| `min_passes` | `int` | Minimum case passes required for the group to pass (default `1`, must be `≥ 1` and `≤ len(cases)`) |
+
+**Example:**
+```python
+from pydantic import BaseModel
+from merit import Case, CaseGroup
+
+
+class CaseRefs(BaseModel):
+    expected: str
+
+class GroupRefs(BaseModel):
+    stop_keywords: list[str]
+
+
+geography = CaseGroup[CaseRefs, GroupRefs](
+    name="geography",
+    references=GroupRefs(stop_keywords=["Lol"]),
+    cases=[
+        Case[CaseRefs](
+            sut_input_values={"prompt": "Capital of France?"},
+            references=CaseRefs(expected="Paris"),
+        ),
+        Case[CaseRefs](
+            sut_input_values={"prompt": "Capital of Germany?"},
+            references=CaseRefs(expected="Berlin"),
+        ),
+    ],
+    min_passes=2,
+)
+
+# Untyped (dict references)
+simple = CaseGroup(
+    name="simple",
+    cases=[Case(sut_input_values={"x": 1})],
+)
+```
+
+---
+
 ### Scope
 
 Enum defining resource lifecycle scopes.
@@ -672,7 +741,10 @@ Decorator to run a merit function for each case.
 
 **Signature:**
 ```python
-def iter_cases(*cases: Case[RefsT]) -> Callable[[Callable[..., Any]], Callable[..., Any]]
+def iter_cases(
+    *cases: Case[RefsT],
+    min_passes: int | None = None,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]
 ```
 
 **Parameters:**
@@ -680,8 +752,13 @@ def iter_cases(*cases: Case[RefsT]) -> Callable[[Callable[..., Any]], Callable[.
 | Name | Type | Description |
 |------|------|-------------|
 | `*cases` | `Case[RefsT]` | One or more test cases to iterate over |
+| `min_passes` | `int \| None` | Minimum number of passing case executions required for the parent merit to pass. Defaults to all cases. |
 
 **Returns:** Decorator that applies parametrization using the cases
+
+**Validation:**
+- `min_passes` must be `>= 1`
+- `min_passes` cannot exceed the number of provided `cases`
 
 **Example:**
 ```python
@@ -699,52 +776,94 @@ def merit_from_dataset(case: Case, classifier):
     if case.references:
         expected = case.references["expected_label"]
         assert result == expected
+
+@iter_cases(*cases, min_passes=8)
+def merit_from_dataset_pass_at_k(case: Case, classifier):
+    result = classifier(**case.sut_input_values)
+    assert result in {"positive", "negative", "neutral"}
 ```
 
 ---
 
-### validate_cases_for_sut
+### iter_case_groups
 
-Validate that test cases match the SUT's signature.
+Decorator to run a merit function for each case group, iterating cases within each group.
 
 **Signature:**
 ```python
-def validate_cases_for_sut(
-    cases: Sequence[Case[RefsT]],
-    sut: Callable[..., Any],
-    raise_on_invalid: bool = True,
-) -> Sequence[Case[RefsT]]
+def iter_case_groups(
+    *groups: CaseGroup[RefsT, GroupRefsT],
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]
 ```
 
 **Parameters:**
 
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `cases` | `Sequence[Case[RefsT]]` | - | Test cases to validate |
-| `sut` | `Callable[..., Any]` | - | System under test to validate against |
-| `raise_on_invalid` | `bool` | `True` | Whether to raise if any case is invalid |
+| Name | Type | Description |
+|------|------|-------------|
+| `*groups` | `CaseGroup[RefsT, GroupRefsT]` | One or more case groups to iterate over |
 
-**Returns:** `Sequence[Case[RefsT]]` - Valid cases (or all cases if validation passed)
+**Returns:** Decorator that applies group-level iteration to the target function
 
-**Raises:** The underlying validation exception if any case's inputs don't match the SUT signature (when `raise_on_invalid=True`)
+**Injected parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `group` | `CaseGroup` | The current group being executed |
+| `case` | `Case` | The current case within the group |
+
+**Execution semantics:**
+- Each group produces a nested execution; within each group, cases are iterated using the group's `min_passes` threshold.
+- The parent merit passes only if **all groups** pass (i.e. every group meets its own `min_passes`).
+
+**Validation:**
+- At least one group is required (empty call sets a deferred definition error)
 
 **Example:**
 ```python
-from merit import Case
-from merit.testing.case import validate_cases_for_sut
+import merit
+from merit import Case, CaseGroup
 
-def my_agent(prompt: str, temperature: float = 0.7) -> str:
-    return llm.generate(prompt, temperature=temperature)
+geography = CaseGroup(
+    name="geography",
+    cases=[
+        Case(sut_input_values={"prompt": "Capital of France?"}, references={"expected": "Paris"}),
+        Case(sut_input_values={"prompt": "Capital of Germany?"}, references={"expected": "Berlin"}),
+    ],
+    min_passes=2,
+)
+
+music = CaseGroup(
+    name="music",
+    cases=[
+        Case(sut_input_values={"prompt": "Best rock band?"}, references={"expected": "Metallica"}),
+    ],
+    min_passes=1,
+)
+
+@merit.iter_case_groups(geography, music)
+def merit_chatbot(group: CaseGroup, case: Case, chatbot):
+    response = chatbot(**case.sut_input_values)
+    assert case.references["expected"] in response
+```
+
+---
+
+### SUT case validation
+
+Validate case inputs by passing them to `@sut(validate_cases=...)`. Validation runs during SUT resolution and raises if any case does not match the resolved callable/method signature.
+
+```python
+import merit
 
 cases = [
-    Case(sut_input_values={"prompt": "Hello", "temperature": 0.5}),
-    Case(sut_input_values={"prompt": "Hi"}),  # temperature optional
-    Case(sut_input_values={"invalid": "param"}),  # Invalid!
+    merit.Case(sut_input_values={"prompt": "Hello", "temperature": 0.5}),
+    merit.Case(sut_input_values={"prompt": "Hi"}),
 ]
 
-# Validate before running
-validate_cases_for_sut(cases, my_agent)  # Raises ValidationError by default
+@merit.sut(validate_cases=cases)
+def my_agent():
+    def run(prompt: str, temperature: float = 0.7) -> str:
+        return f"{prompt} @ {temperature}"
 
-# Or filter out invalid cases
-valid_cases = validate_cases_for_sut(cases, my_agent, raise_on_invalid=False)
+    return run
 ```

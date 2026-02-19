@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from merit.testing.models.case import Case, CaseGroup
+
 
 @dataclass(frozen=True)
 class ParameterSet:
@@ -29,4 +31,19 @@ class ParametrizeModifier:
     parameter_sets: tuple[ParameterSet, ...]
 
 
-Modifier = RepeatModifier | ParametrizeModifier
+@dataclass(frozen=True)
+class CaseIterateModifier:
+    """Run the inner execution for each case."""
+
+    cases: tuple[Case[Any], ...]
+    min_passes: int
+
+
+@dataclass(frozen=True)
+class CaseGroupIterateModifier:
+    """Run the inner execution for each case group."""
+
+    groups: tuple[CaseGroup[Any, Any], ...]
+
+
+Modifier = RepeatModifier | ParametrizeModifier | CaseIterateModifier | CaseGroupIterateModifier
