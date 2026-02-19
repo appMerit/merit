@@ -360,8 +360,9 @@ class Runner:
         async def run_one(idx: int, item: MeritTestDefinition) -> None:
             nonlocal failures
 
-            if self.stop_flag:
-                return
+            async with state_lock:
+                if self.stop_flag:
+                    return
 
             await self._notify_test_start(item)
             execution = await self._execute_item(item, resolver)

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import time
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 from uuid import uuid4
 
@@ -80,7 +82,6 @@ class SingleMeritTest(MeritTest):
         error: Exception | None = None
 
         with self.tracer.span(self.definition) as span:
-            start = time.perf_counter()
             imperative_outcome: TestStatus | None = None
 
             with test_context_scope(ctx), assertions_collector(assertion_results):
@@ -92,6 +93,7 @@ class SingleMeritTest(MeritTest):
                     )
 
                     async with semaphore:
+                        start = time.perf_counter()
                         kwargs = await self._resolve_params(forked_resolver)
 
                         if runner and runner.stop_flag:
@@ -111,17 +113,16 @@ class SingleMeritTest(MeritTest):
                     error = e
                 except Exception as e:  # noqa: BLE001
                     error = e
-                finally:
-                    # teardown case scope - must run even if test fails
-                    try:
-                        await forked_resolver.teardown_scope(Scope.CASE)
-                    except Exception as teardown_err:
-                        # teardown errors dont mask tests errors
-                        logger.warning(f"Error during resource teardown: {teardown_err}")
-                        if error is None:
-                            error = teardown_err
 
             duration_ms = (time.perf_counter() - start) * 1000
+
+            with test_context_scope(ctx):
+                try:
+                    await forked_resolver.teardown_scope(Scope.CASE)
+                except Exception as teardown_err:
+                    logger.warning(f"Error during resource teardown: {teardown_err}")
+                    if error is None:
+                        error = teardown_err
 
             if imperative_outcome is not None:
                 result = TestResult(
@@ -169,12 +170,11 @@ class SingleMeritTest(MeritTest):
 
             instance = cls()
 
-        if instance:
-            if self.definition.is_async:
-                await fn(instance, **kwargs)
-            else:
-                fn(instance, **kwargs)
-        elif self.definition.is_async:
-            await fn(**kwargs)
+        call = partial(fn, instance, **kwargs) if instance else partial(fn, **kwargs)
+
+        if self.definition.is_async:
+            await call()
+        elif self.definition.run_inline:
+            call()
         else:
-            fn(**kwargs)
+            await asyncio.to_thread(call)

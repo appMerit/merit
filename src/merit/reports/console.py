@@ -375,8 +375,10 @@ class ConsoleReporter(Reporter):
             self._current_module = None
             self._reset_live_state(total_tests=len(items))
 
-            environment = RunEnvironment()
             runner = get_runner()
+            environment = (
+                runner.merit_run.environment if runner and runner.merit_run else RunEnvironment()
+            )
             run_id = runner.merit_run.run_id if runner and runner.merit_run else None
             self._print_run_header(environment, run_id)
             if self.verbosity >= 0:
@@ -624,7 +626,7 @@ class ConsoleReporter(Reporter):
             for metric in grouped[metric_name]:
                 case_label = escape(f"[{self._get_case_label(metric)}]")
                 stats = self._format_metric_value(metric)
-                self._print_metric_row(f"• {case_label}", stats, indent=4)
+                self._print_metric_row(case_label, stats, indent=4)
 
     async def on_run_stopped_early(self, failure_count: int) -> None:
         self.console.print(f"\n\n[red]Stopping early after {failure_count} failure(s).[/red]")

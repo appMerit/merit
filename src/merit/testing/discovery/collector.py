@@ -205,6 +205,7 @@ def _build_item_for_callable(
         xfail_reason=combined_tags.xfail_reason,
         xfail_strict=combined_tags.xfail_strict,
         definition_error=definition_error,
+        run_inline=getattr(fn, "__merit_run_inline__", False),
     )
 
 

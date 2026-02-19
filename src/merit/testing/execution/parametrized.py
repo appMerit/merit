@@ -56,11 +56,17 @@ class ParametrizedMeritTest(MeritTest):
 
         sub_executions: list[TestExecution | None] = [None] * len(self.parameter_sets)
         runner = get_runner()
-        for completed_task in asyncio.as_completed(tasks):
-            index, sub_execution = await completed_task
-            sub_executions[index] = sub_execution
-            if runner:
-                await runner.notify_subtest_complete(self.definition, sub_execution)
+        try:
+            for completed_task in asyncio.as_completed(tasks):
+                index, sub_execution = await completed_task
+                sub_executions[index] = sub_execution
+                if runner:
+                    await runner.notify_subtest_complete(self.definition, sub_execution)
+        except Exception:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            raise
 
         ordered_sub_executions = [
             execution for execution in sub_executions if execution is not None

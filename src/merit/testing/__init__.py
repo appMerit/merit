@@ -2,7 +2,7 @@
 
 from merit.resources import ResourceResolver, Scope, resource
 from merit.testing.case import Case, iter_cases, validate_cases_for_sut
-from merit.testing.decorators import parametrize, repeat, tag
+from merit.testing.decorators import parametrize, repeat, run_inline, tag
 from merit.testing.discovery import collect
 from merit.testing.environment import capture_environment
 from merit.testing.execution import (
@@ -70,6 +70,7 @@ __all__ = [
     "parametrize",
     "repeat",
     "resource",
+    "run_inline",
     "skip",
     "tag",
     "validate_cases_for_sut",
