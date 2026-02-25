@@ -12,6 +12,7 @@ from rich.console import Console
 from merit.analysis.client import AnalysisClient
 from merit.analysis.display import ResultDisplay
 from merit.analysis.error_analysis.collector import ErrorDataCollector
+from merit.analysis.error_analysis.dependency_scope import DependencyScopeBuilder
 from merit.analysis.packager import CodebasePackager
 from merit.analysis.types import (
     AnalysisContext,
@@ -80,11 +81,15 @@ async def run_error_analysis_command(args: argparse.Namespace) -> int:
             guardrails.max_failure_signatures_bytes,
         )
 
+        dependency_paths = DependencyScopeBuilder(context.codebase_path).build_include_paths(
+            failure_signatures
+        )
         console.print("[blue]Packaging codebase...[/blue]")
         packager = CodebasePackager(
             root_path=context.codebase_path,
             guardrails=guardrails,
             extra_excludes=context.exclude_patterns,
+            include_paths=dependency_paths,
         )
         zip_path, stats = await packager.create_zip()
         console.print(

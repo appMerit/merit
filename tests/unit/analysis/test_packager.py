@@ -75,3 +75,40 @@ async def test_packager_fails_on_zip_size_guardrail(tmp_path: Path) -> None:
 
     with pytest.raises(GuardrailViolationError, match="max_zip_bytes"):
         await packager.create_zip()
+
+
+@pytest.mark.asyncio
+async def test_packager_include_paths_mode_respects_allowlist_and_excludes(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
+    (tmp_path / "keep.py").write_text("print('ok')\n", encoding="utf-8")
+    (tmp_path / "ignored.py").write_text("print('ignore')\n", encoding="utf-8")
+    (tmp_path / "other.py").write_text("print('other')\n", encoding="utf-8")
+
+    packager = CodebasePackager(
+        root_path=tmp_path,
+        guardrails=Guardrails(),
+        include_paths=[Path("keep.py"), Path("ignored.py"), Path("missing.py")],
+    )
+    zip_path, stats = await packager.create_zip()
+
+    assert stats.file_count == 1
+
+    with zipfile.ZipFile(zip_path) as archive:
+        names = set(archive.namelist())
+
+    assert names == {"keep.py"}
+    zip_path.unlink()
+
+
+@pytest.mark.asyncio
+async def test_packager_include_paths_mode_enforces_file_size_guardrail(tmp_path: Path) -> None:
+    (tmp_path / "big.py").write_bytes(b"x" * 64)
+
+    packager = CodebasePackager(
+        root_path=tmp_path,
+        guardrails=Guardrails(max_file_bytes=16),
+        include_paths=[Path("big.py")],
+    )
+
+    with pytest.raises(GuardrailViolationError, match="max_file_bytes"):
+        await packager.create_zip()

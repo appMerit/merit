@@ -41,14 +41,16 @@ class CodebasePackager:
         root_path: Path,
         guardrails: Guardrails,
         extra_excludes: list[str] | None = None,
+        include_paths: list[Path] | None = None,
     ) -> None:
         if pathspec is None:
             msg = "analysis extra is required. Install with: uv sync --extra analyze"
             raise RuntimeError(msg)
 
-        self._root_path = root_path
+        self._root_path = root_path.resolve()
         self._guardrails = guardrails
         self._extra_excludes = set(extra_excludes or [])
+        self._include_paths = include_paths
         self._spec = self._build_spec()
 
     async def create_zip(self) -> tuple[Path, PackagingStats]:
@@ -111,6 +113,9 @@ class CodebasePackager:
         return pathspec.PathSpec.from_lines("gitignore", patterns)
 
     def _iter_included_files(self) -> list[Path]:
+        if self._include_paths is not None:
+            return self._iter_selected_files()
+
         included: list[Path] = []
 
         for root, dirs, files in os.walk(self._root_path):
@@ -126,6 +131,30 @@ class CodebasePackager:
                     included.append(relative_path)
 
         return included
+
+    def _iter_selected_files(self) -> list[Path]:
+        included: set[Path] = set()
+
+        for include_path in self._include_paths or []:
+            normalized = self._normalize_include_path(include_path)
+            if normalized is None:
+                continue
+            if self._should_include(normalized):
+                included.add(normalized)
+
+        return sorted(included)
+
+    def _normalize_include_path(self, include_path: Path) -> Path | None:
+        absolute_path = (
+            include_path.resolve()
+            if include_path.is_absolute()
+            else (self._root_path / include_path).resolve()
+        )
+        if not absolute_path.is_file():
+            return None
+        if not absolute_path.is_relative_to(self._root_path):
+            return None
+        return absolute_path.relative_to(self._root_path)
 
     def _should_include(self, relative_path: Path) -> bool:
         normalized = str(relative_path).replace(os.sep, "/")
