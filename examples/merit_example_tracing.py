@@ -11,50 +11,58 @@ Run with tracing enabled:
 The traces will be exported to traces.json at the end of the run.
 """
 
-import merit
+from collections.abc import Callable
 
+import merit
 
 # === System Under Test Examples ===
 
 
 @merit.sut
-def simple_sut(prompt: str) -> str:
+def simple_sut() -> Callable:
     """Simple sync SUT - all calls inside are traced."""
     # In a real scenario, this would call an LLM
-    return f"Response to: {prompt}"
+    return lambda prompt: f"Response to: {prompt}"
 
 
 @merit.sut
-async def async_sut(prompt: str) -> str:
+async def async_sut() -> Callable:
     """Async SUT - works the same way."""
-    # Simulating async LLM call
-    import asyncio
 
-    await asyncio.sleep(0.01)
-    return f"Async response to: {prompt}"
+    # Simulating async LLM call
+    async def slow_response(prompt: str) -> str:
+        import asyncio
+
+        await asyncio.sleep(0.01)
+        return f"Async response to: {prompt}"
+
+    return slow_response
 
 
 @merit.sut
-class PipelineSUT:
-    """Class-based SUT - __call__ is automatically traced."""
+def pipeline_sut() -> Callable:
+    class PipelineSUT:
+        """Class-based SUT - __call__ is automatically traced."""
 
-    def __init__(self) -> None:
-        self.context = "initialized"
+        def __init__(self) -> None:
+            self.context = "initialized"
 
-    def __call__(self, query: str) -> str:
-        """Main entry point - traced automatically."""
-        retrieved = self._retrieve(query)
-        return self._generate(retrieved, query)
+        def __call__(self, query: str) -> str:
+            """Main entry point - traced automatically."""
+            retrieved = self._retrieve(query)
+            return self._generate(retrieved, query)
 
-    def _retrieve(self, query: str) -> list[str]:
-        """Internal method - use trace_step for finer granularity."""
-        with merit.trace_step("retrieve", {"query_length": len(query)}):
-            return [f"doc1 about {query}", f"doc2 about {query}"]
+        def _retrieve(self, query: str) -> list[str]:
+            """Internal method - use trace_step for finer granularity."""
+            with merit.trace_step("retrieve", {"query_length": len(query)}):
+                return [f"doc1 about {query}", f"doc2 about {query}"]
 
-    def _generate(self, docs: list[str], query: str) -> str:
-        """Internal method with trace step."""
-        with merit.trace_step("generate", {"doc_count": len(docs)}):
-            return f"Answer based on {len(docs)} docs for: {query}"
+        def _generate(self, docs: list[str], query: str) -> str:
+            """Internal method with trace step."""
+            with merit.trace_step("generate", {"doc_count": len(docs)}):
+                return f"Answer based on {len(docs)} docs for: {query}"
+
+    return PipelineSUT()
 
 
 # === Test Functions ===
@@ -107,7 +115,7 @@ def merit_multiple_sut_calls(simple_sut, pipeline_sut):
 
 
 @merit.sut
-def agent_with_external_client(task: str) -> str:
+def agent_with_external_client() -> Callable:
     """SUT that would use an externally instantiated client.
 
     Even if the client is created outside this function,
@@ -119,7 +127,7 @@ def agent_with_external_client(task: str) -> str:
     # client = OpenAI()  # Even if created at module level
     # response = client.chat.completions.create(...)
     # All these calls would be traced under the sut.agent_with_external_client span
-    return f"Completed task: {task}"
+    return lambda task: f"Completed task: {task}"
 
 
 def merit_external_client_pattern(agent_with_external_client):

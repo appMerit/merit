@@ -64,3 +64,11 @@ async def merit_slow_api_call_6(shared_client):
     await asyncio.sleep(0.5)
     shared_client["requests"] += 1
     assert shared_client["id"] == "shared-client"
+
+
+@merit.repeat(5)
+async def merit_slow_api_call_7(shared_client):
+    """Simulates a seventh slow API call."""
+    await asyncio.sleep(1.5)
+    shared_client["requests"] += 1
+    assert shared_client["id"] == "shared-client"

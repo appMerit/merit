@@ -224,7 +224,55 @@ def merit_from_dataset(case: Case, classifier):
 
     expected = case.references["expected_label"]
     assert result == expected
+
+@merit.iter_cases(*cases, min_passes=8)
+def merit_from_dataset_pass_at_k(case: Case, classifier):
+    result = classifier(**case.sut_input_values)
+
+    expected = case.references["expected_label"]
+    assert result == expected
 ```
+
+`min_passes` on `iter_cases` works like `repeat`: by default all case executions must pass, but you can require a lower threshold when evaluating large or noisy datasets.
+
+### Iterate with grouped cases
+
+When your cases naturally fall into groups (e.g. topics, difficulty tiers, languages), use `@merit.iter_case_groups` with `CaseGroup` objects. Each group carries its own **group-level references** and a **`min_passes` threshold**, giving you hierarchical reporting (run → groups → cases) and per-group pass/fail semantics.
+
+```python
+import merit
+from merit import Case, CaseGroup
+
+geography = CaseGroup(
+    name="geography",
+    cases=[
+        Case(sut_input_values={"prompt": "Capital of France?"}, references={"expected": "Paris"}),
+        Case(sut_input_values={"prompt": "Capital of Germany?"}, references={"expected": "Berlin"}),
+    ],
+    min_passes=2,  # strict: both must pass
+)
+
+music = CaseGroup(
+    name="music",
+    cases=[
+        Case(sut_input_values={"prompt": "Best rock band?"}, references={"expected": "Metallica"}),
+        Case(sut_input_values={"prompt": "Best pop artist?"}, references={"expected": "Lady Gaga"}),
+    ],
+    min_passes=1,  # tolerant: at least one must pass
+)
+
+
+@merit.iter_case_groups(geography, music)
+def merit_chatbot(group: CaseGroup, case: Case, chatbot):
+    response = chatbot(**case.sut_input_values)
+    assert case.references["expected"] in response
+```
+
+The merit passes only if **every group** meets its own `min_passes`. Inside the merit function, `group` and `case` are injected automatically — use `group.references` for group-level data and `case.references` for case-level data.
+
+<Tip>
+Use `CaseGroup` when you need per-group thresholds or group-level metadata. If all cases are flat and share the same threshold, stick with `@merit.iter_cases(*cases, min_passes=k)`.
+</Tip>
 
 ### Repeat with same data
 

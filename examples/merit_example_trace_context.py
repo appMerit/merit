@@ -7,26 +7,36 @@ custom trace attributes.
 Run with: uv run merit examples/merit_example_trace_context.py --trace
 """
 
+from collections.abc import Callable
+
 import merit
 
 
 @merit.sut
-def simple_pipeline(query: str) -> str:
+def simple_pipeline() -> Callable:
     """A simple SUT that processes a query."""
-    with merit.trace_step("process", {"query_length": len(query)}):
-        return f"Processed: {query}"
+
+    def process(query: str) -> str:
+        with merit.trace_step("process", {"query_length": len(query)}):
+            return f"Processed: {query}"
+
+    return process
 
 
 @merit.sut
-def multi_step_pipeline(query: str) -> str:
+def multi_step_pipeline() -> Callable:
     """A pipeline with multiple trace steps."""
-    with merit.trace_step("retrieve"):
-        docs = [f"doc about {query}"]
 
-    with merit.trace_step("generate"):
-        result = f"Generated from {len(docs)} docs: {query}"
+    def rag(query: str) -> str:
+        with merit.trace_step("retrieve"):
+            docs = [f"doc about {query}"]
 
-    return result
+        with merit.trace_step("generate"):
+            result = f"Generated from {len(docs)} docs: {query}"
+
+        return result
+
+    return rag
 
 
 # Basic: Set custom attributes on test span

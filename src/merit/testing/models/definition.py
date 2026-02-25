@@ -28,6 +28,7 @@ class MeritTestDefinition:
     xfail_reason: str | None = None
     xfail_strict: bool = False
     definition_error: str | None = None
+    run_inline: bool = False
     fail_fast: bool = False
     id_suffix: str | None = None
 

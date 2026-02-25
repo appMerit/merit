@@ -2,15 +2,23 @@
 
 import asyncio
 import os
+import time
 from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
 
+from merit.reports.base import Reporter
 from merit.resources import clear_registry, resource
 from merit.testing.environment import _filter_env_vars, capture_environment
 from merit.testing.models import (
+    Case,
+    CaseGroup,
+    CaseGroupIterateModifier,
+    CaseIterateModifier,
+    ParameterSet,
+    ParametrizeModifier,
     RunEnvironment,
     RunResult,
     TestExecution,
@@ -54,6 +62,47 @@ def make_item(
         xfail_strict=xfail_strict,
         id_suffix=id_suffix,
     )
+
+
+class EventReporter(Reporter):
+    """Reporter that records event timing and sequencing."""
+
+    def __init__(self) -> None:
+        self.start_time = 0.0
+        self.event_times: list[tuple[str, str, float]] = []
+        self.event_order: list[tuple[str, str]] = []
+        self.subtest_event_times: list[tuple[str, str, float]] = []
+        self.run_complete_elapsed = 0.0
+
+    async def on_no_tests_found(self) -> None:
+        pass
+
+    async def on_collection_complete(self, _items: list[TestItem]) -> None:
+        self.start_time = time.perf_counter()
+
+    async def on_test_start(self, item: TestItem) -> None:
+        elapsed = time.perf_counter() - self.start_time
+        self.event_times.append(("start", item.name, elapsed))
+        self.event_order.append(("start", item.name))
+
+    async def on_test_complete(self, execution: TestExecution) -> None:
+        elapsed = time.perf_counter() - self.start_time
+        self.event_times.append(("complete", execution.item.name, elapsed))
+        self.event_order.append(("complete", execution.item.name))
+
+    async def on_subtest_complete(self, parent: TestItem, sub_execution: TestExecution) -> None:
+        elapsed = time.perf_counter() - self.start_time
+        suffix = sub_execution.item.id_suffix or ""
+        self.subtest_event_times.append((parent.name, suffix, elapsed))
+
+    async def on_run_complete(self, _merit_run) -> None:
+        self.run_complete_elapsed = time.perf_counter() - self.start_time
+
+    async def on_run_stopped_early(self, failure_count: int) -> None:
+        pass
+
+    async def on_tracing_enabled(self, output_path: Path) -> None:
+        pass
 
 
 class TestRunResult:
@@ -397,6 +446,68 @@ class TestMaxfail:
 class TestConcurrency:
     """Tests for concurrent test execution."""
 
+    @staticmethod
+    def _make_parametrized_item(
+        *,
+        name: str,
+        parameter_sets: tuple[ParameterSet, ...],
+    ) -> TestItem:
+        async def parametrized_case(delay: float) -> None:
+            await asyncio.sleep(delay)
+
+        return TestItem(
+            fn=parametrized_case,
+            name=name,
+            module_path=Path("test_module.py"),
+            is_async=True,
+            params=["delay"],
+            class_name=None,
+            modifiers=[ParametrizeModifier(parameter_sets=parameter_sets)],
+            tags=set(),
+        )
+
+    @staticmethod
+    def _make_case_iterated_item(
+        *,
+        name: str,
+        cases: tuple[Case[dict[str, float]], ...],
+        min_passes: int,
+    ) -> TestItem:
+        async def case_iterated_test(case) -> None:
+            await asyncio.sleep(case.sut_input_values["delay"])
+
+        return TestItem(
+            fn=case_iterated_test,
+            name=name,
+            module_path=Path("test_module.py"),
+            is_async=True,
+            params=["case"],
+            class_name=None,
+            modifiers=[CaseIterateModifier(cases=cases, min_passes=min_passes)],
+            tags=set(),
+        )
+
+    @staticmethod
+    def _make_case_group_iterated_item(
+        *,
+        name: str,
+        groups: tuple[CaseGroup[dict[str, float], dict[str, float]], ...],
+    ) -> TestItem:
+        async def case_group_iterated_test(group, case) -> None:
+            _ = group
+            await asyncio.sleep(case.sut_input_values["delay"])
+
+        return TestItem(
+            fn=case_group_iterated_test,
+            name=name,
+            module_path=Path("test_module.py"),
+            is_async=True,
+            params=["group", "case"],
+            class_name=None,
+            modifiers=[CaseGroupIterateModifier(groups=groups)],
+            tags=set(),
+        )
+
     @pytest.mark.asyncio
     async def test_concurrent_execution(self, null_reporter):
         start_times = []
@@ -412,6 +523,235 @@ class TestConcurrency:
         assert result.result.passed == 3
         # All should start within a small window (concurrent)
         assert max(start_times) - min(start_times) < 0.05
+
+    @pytest.mark.asyncio
+    async def test_concurrent_callbacks_stream_before_run_complete(self):
+        items = []
+        delays = [0.25, 0.05, 0.1]
+        for idx, delay in enumerate(delays):
+
+            async def test_fn(d=delay):
+                await asyncio.sleep(d)
+
+            items.append(make_item(test_fn, name=f"test_{idx}", is_async=True))
+
+        reporter = EventReporter()
+        runner = Runner(reporters=[reporter], concurrency=3, save_to_db=False)
+        await runner.run(items=items)
+
+        complete_times = [
+            elapsed for kind, _name, elapsed in reporter.event_times if kind == "complete"
+        ]
+        assert complete_times
+        assert min(complete_times) < 0.15
+        assert min(complete_times) < reporter.run_complete_elapsed
+
+    @pytest.mark.asyncio
+    async def test_on_test_start_precedes_on_test_complete_per_item(self):
+        items = []
+        delays = [0.05, 0.1, 0.02]
+        for idx, delay in enumerate(delays):
+
+            async def test_fn(d=delay):
+                await asyncio.sleep(d)
+
+            items.append(make_item(test_fn, name=f"test_{idx}", is_async=True))
+
+        reporter = EventReporter()
+        runner = Runner(reporters=[reporter], concurrency=3, save_to_db=False)
+        await runner.run(items=items)
+
+        started = {name for kind, name in reporter.event_order if kind == "start"}
+        completed = {name for kind, name in reporter.event_order if kind == "complete"}
+        assert started == completed == {item.name for item in items}
+
+        for item in items:
+            start_idx = reporter.event_order.index(("start", item.name))
+            complete_idx = reporter.event_order.index(("complete", item.name))
+            assert start_idx < complete_idx
+
+    @pytest.mark.asyncio
+    async def test_concurrent_raises_when_on_test_start_fails(self):
+        async def test_fn():
+            await asyncio.sleep(0.01)
+
+        class StartFailureReporter(EventReporter):
+            async def on_test_start(self, item: TestItem) -> None:
+                raise RuntimeError("start callback failed")
+
+        runner = Runner(
+            reporters=[StartFailureReporter()],
+            concurrency=2,
+            save_to_db=False,
+        )
+        with pytest.raises(RuntimeError, match="start callback failed"):
+            await runner.run(items=[make_item(test_fn, name="test_start", is_async=True)])
+
+    @pytest.mark.asyncio
+    async def test_concurrent_raises_when_on_test_complete_fails(self):
+        async def test_fn():
+            await asyncio.sleep(0.01)
+
+        class CompleteFailureReporter(EventReporter):
+            async def on_test_complete(self, execution: TestExecution) -> None:
+                raise RuntimeError("complete callback failed")
+
+        runner = Runner(
+            reporters=[CompleteFailureReporter()],
+            concurrency=2,
+            save_to_db=False,
+        )
+        with pytest.raises(RuntimeError, match="complete callback failed"):
+            await runner.run(items=[make_item(test_fn, name="test_complete", is_async=True)])
+
+    @pytest.mark.asyncio
+    async def test_subtest_callbacks_stream_before_parent_completion(self):
+        item = self._make_parametrized_item(
+            name="test_parametrized",
+            parameter_sets=(
+                ParameterSet(values={"delay": 0.2}, id_suffix="slow"),
+                ParameterSet(values={"delay": 0.01}, id_suffix="fast"),
+                ParameterSet(values={"delay": 0.05}, id_suffix="mid"),
+            ),
+        )
+
+        reporter = EventReporter()
+        runner = Runner(reporters=[reporter], concurrency=3, save_to_db=False)
+        await runner.run(items=[item])
+
+        assert len(reporter.subtest_event_times) == 3
+        parent_complete_elapsed = next(
+            elapsed
+            for kind, name, elapsed in reporter.event_times
+            if kind == "complete" and name == item.name
+        )
+        assert max(elapsed for _parent, _suffix, elapsed in reporter.subtest_event_times) <= (
+            parent_complete_elapsed
+        )
+
+    @pytest.mark.asyncio
+    async def test_subtest_callback_count_matches_and_order_is_deterministic(self):
+        parameter_sets = (
+            ParameterSet(values={"delay": 0.15}, id_suffix="first"),
+            ParameterSet(values={"delay": 0.01}, id_suffix="second"),
+            ParameterSet(values={"delay": 0.05}, id_suffix="third"),
+        )
+        item = self._make_parametrized_item(
+            name="test_parametrized_order", parameter_sets=parameter_sets
+        )
+
+        reporter = EventReporter()
+        runner = Runner(reporters=[reporter], concurrency=3, save_to_db=False)
+        merit_run = await runner.run(items=[item])
+
+        assert len(reporter.subtest_event_times) == len(parameter_sets)
+        execution = merit_run.result.executions[0]
+        assert [sub.item.id_suffix for sub in execution.sub_executions] == [
+            "first",
+            "second",
+            "third",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_case_iterated_callbacks_stream_and_order_is_deterministic(self):
+        cases = (
+            Case(
+                id=UUID("00000000-0000-0000-0000-000000000001"),
+                sut_input_values={"delay": 0.15},
+            ),
+            Case(
+                id=UUID("00000000-0000-0000-0000-000000000002"),
+                sut_input_values={"delay": 0.01},
+            ),
+            Case(
+                id=UUID("00000000-0000-0000-0000-000000000003"),
+                sut_input_values={"delay": 0.05},
+            ),
+        )
+        item = self._make_case_iterated_item(
+            name="test_case_iterated_order",
+            cases=cases,
+            min_passes=len(cases),
+        )
+
+        reporter = EventReporter()
+        runner = Runner(reporters=[reporter], concurrency=3, save_to_db=False)
+        merit_run = await runner.run(items=[item])
+
+        assert len(reporter.subtest_event_times) == len(cases)
+        parent_complete_elapsed = next(
+            elapsed
+            for kind, name, elapsed in reporter.event_times
+            if kind == "complete" and name == item.name
+        )
+        assert max(elapsed for _parent, _suffix, elapsed in reporter.subtest_event_times) <= (
+            parent_complete_elapsed
+        )
+
+        execution = merit_run.result.executions[0]
+        assert [sub.item.id_suffix for sub in execution.sub_executions] == [
+            str(case.id) for case in cases
+        ]
+
+    @pytest.mark.asyncio
+    async def test_case_group_iterated_callbacks_stream_and_order_is_deterministic(self):
+        groups = (
+            CaseGroup(
+                name="alpha",
+                cases=[
+                    Case(
+                        id=UUID("00000000-0000-0000-0000-000000000011"),
+                        sut_input_values={"delay": 0.15},
+                    )
+                ],
+                min_passes=1,
+            ),
+            CaseGroup(
+                name="beta",
+                cases=[
+                    Case(
+                        id=UUID("00000000-0000-0000-0000-000000000012"),
+                        sut_input_values={"delay": 0.01},
+                    )
+                ],
+                min_passes=1,
+            ),
+            CaseGroup(
+                name="gamma",
+                cases=[
+                    Case(
+                        id=UUID("00000000-0000-0000-0000-000000000013"),
+                        sut_input_values={"delay": 0.05},
+                    )
+                ],
+                min_passes=1,
+            ),
+        )
+        item = self._make_case_group_iterated_item(
+            name="test_case_group_iterated_order",
+            groups=groups,
+        )
+
+        reporter = EventReporter()
+        runner = Runner(reporters=[reporter], concurrency=3, save_to_db=False)
+        merit_run = await runner.run(items=[item])
+
+        group_names = {group.name for group in groups}
+        group_events = [event for event in reporter.subtest_event_times if event[1] in group_names]
+        assert len(group_events) == len(groups)
+        parent_complete_elapsed = next(
+            elapsed
+            for kind, name, elapsed in reporter.event_times
+            if kind == "complete" and name == item.name
+        )
+        assert max(elapsed for _parent, _suffix, elapsed in group_events) <= (
+            parent_complete_elapsed
+        )
+
+        execution = merit_run.result.executions[0]
+        assert [sub.item.id_suffix for sub in execution.sub_executions] == [
+            group.name for group in groups
+        ]
 
     @pytest.mark.asyncio
     async def test_sequential_execution(self, null_reporter):
@@ -575,6 +915,34 @@ class TestResourceTeardown:
 
         assert create_count == 1
         assert captured == ["suite_1", "suite_1"]
+
+    @pytest.mark.asyncio
+    async def test_session_resource_created_once_under_concurrency(self, null_reporter):
+        create_count = 0
+        teardown_count = 0
+
+        @resource(scope="session")
+        async def session_res():
+            nonlocal create_count, teardown_count
+            create_count += 1
+            await asyncio.sleep(0.02)
+            yield f"session_{create_count}"
+            teardown_count += 1
+
+        async def test_with_session(session_res):
+            assert session_res == "session_1"
+
+        items = [
+            make_item(test_with_session, name=f"test_{i}", is_async=True, params=["session_res"])
+            for i in range(8)
+        ]
+
+        runner = Runner(reporters=[null_reporter], concurrency=4)
+        result = await runner.run(items=items)
+
+        assert result.result.passed == len(items)
+        assert create_count == 1
+        assert teardown_count == 1
 
 
 class TestResourceResolutionErrors:

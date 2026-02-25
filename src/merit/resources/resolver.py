@@ -4,8 +4,10 @@ Similar to pytest fixtures, resources provide injectable dependencies
 based on parameter name matching.
 """
 
+import asyncio
 import inspect
 from collections.abc import AsyncGenerator, Callable, Generator
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ParamSpec, TypeVar
@@ -25,6 +27,12 @@ class Scope(Enum):
     CASE = "case"  # Fresh instance per test
     SUITE = "suite"  # Shared across tests in same file
     SESSION = "session"  # Shared across entire test run
+
+
+_RESOLUTION_PATH: ContextVar[tuple[tuple[Scope, str], ...]] = ContextVar(
+    "resource_resolution_path",
+    default=(),
+)
 
 
 @dataclass
@@ -115,45 +123,34 @@ class ResourceResolver:
             tuple[Scope, str, Generator[Any, None, None] | AsyncGenerator[Any, None]]
         ] = []
         self._parent = parent
+        self._shared_creation_locks: dict[tuple[Scope, str], asyncio.Lock] = (
+            parent._shared_creation_locks if parent is not None else {}
+        )
 
-    def fork_for_case(self) -> "ResourceResolver":
-        """Create a child resolver for isolated CASE-scope execution."""
-        child = ResourceResolver(self._registry, parent=self)
-        for key, value in self._cache.items():
-            if key[0] in {Scope.SUITE, Scope.SESSION}:
-                child._cache[key] = value
-        return child
+    def _owner_resolver_for_scope(self, scope: Scope) -> "ResourceResolver":
+        if scope in {Scope.SUITE, Scope.SESSION} and self._parent is not None:
+            return self._parent._owner_resolver_for_scope(scope)
+        return self
 
-    def _register_teardown(
-        self, scope: Scope, name: str, gen: Generator[Any, None, None] | AsyncGenerator[Any, None]
-    ) -> None:
-        if scope in {Scope.SUITE, Scope.SESSION} and self._parent:
-            self._parent._register_teardown(scope, name, gen)
-        else:
-            self._teardowns.append((scope, name, gen))
+    async def _apply_on_injection(self, defn: ResourceDef, name: str, value: Any) -> Any:
+        if defn.on_injection:
+            try:
+                value = defn.on_injection(value)
+                if inspect.iscoroutine(value):
+                    value = await value
+            except Exception as e:
+                raise RuntimeError(
+                    f"Hook {defn.on_injection.__name__} failed for resource '{name}': {e}"
+                ) from e
+        return value
 
-    async def resolve(self, name: str) -> Any:
-        if name not in self._registry:
-            msg = f"Unknown resource: {name}"
-            raise ValueError(msg)
-
-        defn = self._registry[name]
-        cache_key = (defn.scope, name)
-
-        if cache_key in self._cache:
-            value = self._cache[cache_key]
-            if defn.on_injection:
-                try:
-                    value = defn.on_injection(value)
-                    if inspect.iscoroutine(value):
-                        value = await value
-                    return value
-                except Exception as e:
-                    raise RuntimeError(
-                        f"Hook {defn.on_injection.__name__} failed for resource '{name}': {e}"
-                    ) from e
-            return value
-
+    async def _resolve_uncached(
+        self,
+        *,
+        name: str,
+        defn: ResourceDef,
+        cache_key: tuple[Scope, str],
+    ) -> Any:
         kwargs = {}
         resolver_ctx = ResolverContext(consumer_name=name)
         with resolver_context_scope(resolver_ctx):
@@ -186,18 +183,62 @@ class ResourceResolver:
         self._cache[cache_key] = value
         if defn.scope in {Scope.SUITE, Scope.SESSION} and self._parent:
             self._parent._cache[cache_key] = value
-
-        if defn.on_injection:
-            try:
-                value = defn.on_injection(value)
-                if inspect.iscoroutine(value):
-                    value = await value
-            except Exception as e:
-                raise RuntimeError(
-                    f"Hook {defn.on_injection.__name__} failed for resource '{name}': {e}"
-                ) from e
-
         return value
+
+    def fork_for_case(self) -> "ResourceResolver":
+        """Create a child resolver for isolated CASE-scope execution."""
+        child = ResourceResolver(self._registry, parent=self)
+        for key, value in self._cache.items():
+            if key[0] in {Scope.SUITE, Scope.SESSION}:
+                child._cache[key] = value
+        return child
+
+    def _register_teardown(
+        self, scope: Scope, name: str, gen: Generator[Any, None, None] | AsyncGenerator[Any, None]
+    ) -> None:
+        if scope in {Scope.SUITE, Scope.SESSION} and self._parent:
+            self._parent._register_teardown(scope, name, gen)
+        else:
+            self._teardowns.append((scope, name, gen))
+
+    async def resolve(self, name: str) -> Any:
+        if name not in self._registry:
+            msg = f"Unknown resource: {name}"
+            raise ValueError(msg)
+
+        defn = self._registry[name]
+        cache_key = (defn.scope, name)
+        path = _RESOLUTION_PATH.get()
+        if cache_key in path:
+            cycle = " -> ".join(f"{scope.value}:{dep}" for scope, dep in (*path, cache_key))
+            raise RuntimeError(f"Circular resource dependency detected: {cycle}")
+
+        token = _RESOLUTION_PATH.set((*path, cache_key))
+        try:
+            owner = self._owner_resolver_for_scope(defn.scope)
+
+            if cache_key in owner._cache:
+                value = owner._cache[cache_key]
+            elif defn.scope in {Scope.SUITE, Scope.SESSION}:
+                lock = owner._shared_creation_locks.setdefault(cache_key, asyncio.Lock())
+                async with lock:
+                    if cache_key in owner._cache:
+                        value = owner._cache[cache_key]
+                    else:
+                        value = await owner._resolve_uncached(
+                            name=name,
+                            defn=defn,
+                            cache_key=cache_key,
+                        )
+            else:
+                value = await owner._resolve_uncached(name=name, defn=defn, cache_key=cache_key)
+
+            if owner is not self and cache_key in owner._cache:
+                self._cache[cache_key] = owner._cache[cache_key]
+
+            return await self._apply_on_injection(defn, name, value)
+        finally:
+            _RESOLUTION_PATH.reset(token)
 
     async def resolve_many(self, names: list[str]) -> dict[str, Any]:
         return {name: await self.resolve(name) for name in names}

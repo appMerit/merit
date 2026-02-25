@@ -68,7 +68,7 @@ def merit_model_response(model: str, temp: float, chatbot):
     assert response
 ```
 
-**`@merit.iter_cases(*cases)`** - Iterate over `Case` objects from external sources
+**`@merit.iter_cases(*cases, min_passes=len(cases))`** - Iterate over `Case` objects from external sources, optionally allowing pass thresholds
 
 ```python
 import json
@@ -81,6 +81,37 @@ def merit_from_dataset(case: Case, classifier):
     result = classifier(**case.sut_input_values)
     if case.references:
         assert result == case.references["some_ref_value"]
+
+@merit.iter_cases(*cases, min_passes=8)  # Requires at least 8 case passes
+def merit_from_dataset_threshold(case: Case, classifier):
+    result = classifier(**case.sut_input_values)
+    assert result == case.references["some_ref_value"]
+```
+
+**`@merit.iter_case_groups(*groups)`** - Iterate over `CaseGroup` objects with per-group thresholds and group-level references
+
+```python
+from merit import Case, CaseGroup
+
+geography = CaseGroup(
+    name="geography",
+    cases=[
+        Case(sut_input_values={"prompt": "Capital of France?"}, references={"expected": "Paris"}),
+        Case(sut_input_values={"prompt": "Capital of Germany?"}, references={"expected": "Berlin"}),
+    ],
+    min_passes=2,
+)
+
+music = CaseGroup(
+    name="music",
+    cases=[Case(sut_input_values={"prompt": "Best rock band?"}, references={"expected": "Metallica"})],
+    min_passes=1,
+)
+
+@merit.iter_case_groups(geography, music)
+def merit_chatbot(group: CaseGroup, case: Case, chatbot):
+    response = chatbot(**case.sut_input_values)
+    assert case.references["expected"] in response
 ```
 
 **`@merit.tag(*tags)`** - Organize and filter merits by tags
@@ -127,6 +158,23 @@ def merit_consistent(llm):
 @merit.repeat(10, min_passes=8)  # 8 out of 10
 def merit_mostly_correct(llm):
     assert "hola" in llm.generate("Say hello in Spanish")
+```
+
+**`@merit.run_inline`** - Opt out of default threaded execution for sync merits
+
+By default, synchronous merits (`def merit_*`) run in a worker thread via `asyncio.to_thread(...)` so the event loop stays responsive. Use `@merit.run_inline` when a sync merit must run on the main event-loop thread (for example, thread-sensitive libraries).
+
+```python
+import threading
+
+def merit_default_threaded():
+    # Runs in a worker thread by default.
+    assert threading.current_thread() is not threading.main_thread()
+
+@merit.run_inline
+def merit_main_thread_only():
+    # Runs inline on the event-loop thread.
+    assert threading.current_thread() is threading.main_thread()
 ```
 
 ## Resources

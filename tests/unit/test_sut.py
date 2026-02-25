@@ -1,17 +1,20 @@
 """Tests for merit.testing.sut module."""
 
 import asyncio
+import inspect
+import json
 
 import pytest
+from pydantic_core import ValidationError
 
-from merit.resources import ResourceResolver, Scope, clear_registry, get_registry
+from merit.resources import ResourceResolver, Scope, clear_registry, get_registry, resource
+from merit.testing.models import Case
 from merit.testing.sut import sut
 from merit.tracing import clear_traces, set_trace_output_path
 
 
 @pytest.fixture(autouse=True)
 def clean_registry():
-    """Clear the global registry before and after each test."""
     clear_registry()
     yield
     clear_registry()
@@ -19,156 +22,195 @@ def clean_registry():
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_tracing_once(tmp_path_factory):
-    """Initialize tracing once for all tests in this module."""
     tmp_dir = tmp_path_factory.mktemp("traces")
-    output_path = tmp_dir / "sut_traces.jsonl"
-    set_trace_output_path(output_path=str(output_path))
+    set_trace_output_path(output_path=tmp_dir / "sut_traces.jsonl")
 
 
 @pytest.fixture(autouse=True)
 def clear_traces_each(tmp_path):
-    """Point tracing to a temp file and clear before/after each test."""
-    output_path = tmp_path / "traces.jsonl"
-    set_trace_output_path(output_path)
-
+    set_trace_output_path(tmp_path / "traces.jsonl")
     clear_traces()
     yield
     clear_traces()
 
 
 class TestSutDecorator:
-    """Tests for the @sut decorator."""
+    def test_rejects_classes(self):
+        with pytest.raises(TypeError, match="only decorate functions"):
+            sut(type("MySUT", (), {}))
 
-    def test_registers_sync_function(self):
+    def test_registers_resource_with_case_scope_by_default(self):
         @sut
-        def my_sut(x: int) -> int:
-            return x * 2
+        def my_sut():
+            return lambda x: x * 2
 
         registry = get_registry()
         assert "my_sut" in registry
-        defn = registry["my_sut"]
-        assert defn.scope == Scope.SESSION
-        assert defn.dependencies == []
+        assert registry["my_sut"].scope == Scope.CASE
 
-    def test_registers_async_function(self):
+    def test_scope_is_user_defined(self):
+        @sut(scope=Scope.SESSION)
+        def my_session_sut():
+            return lambda x: x
+
+        registry = get_registry()
+        assert registry["my_session_sut"].scope == Scope.SESSION
+
+    def test_resource_dependencies_are_captured_from_factory_signature(self):
+        @resource
+        def dep():
+            return 3
+
         @sut
-        async def async_sut(x: int) -> int:
-            return x * 2
+        def my_sut(dep):
+            return lambda x: x + dep
 
         registry = get_registry()
-        assert "async_sut" in registry
-        defn = registry["async_sut"]
-        assert defn.scope == Scope.SESSION
+        assert registry["my_sut"].dependencies == ["dep"]
 
-    def test_registers_class_with_snake_case_name(self):
+    def test_registry_key_is_factory_function_name(self):
         @sut
-        class MyTestAgent:
-            def __call__(self, x: int) -> int:
-                return x * 2
+        def original_name():
+            return lambda: "ok"
 
         registry = get_registry()
-        assert "my_test_agent" in registry
-        defn = registry["my_test_agent"]
-        assert defn.scope == Scope.SESSION
-
-    def test_custom_name_override(self):
-        @sut(name="custom_name")
-        def original_name(x: int) -> int:
-            return x
-
-        registry = get_registry()
-        assert "custom_name" in registry
-        assert "original_name" not in registry
-
-    def test_class_custom_name(self):
-        @sut(name="custom_class")
-        class OriginalClass:
-            def __call__(self) -> str:
-                return "result"
-
-        registry = get_registry()
-        assert "custom_class" in registry
+        assert "original_name" in registry
 
 
 class TestSutResolution:
-    """Tests for resolving SUT resources."""
-
     @pytest.mark.asyncio
-    async def test_resolves_sync_sut(self):
+    async def test_wraps_returned_callable(self):
         @sut
-        def adder(x: int, y: int) -> int:
-            return x + y
+        def adder():
+            def run(x: int, y: int) -> int:
+                return x + y
+
+            return run
 
         resolver = ResourceResolver(get_registry())
         resolved = await resolver.resolve("adder")
 
         assert callable(resolved)
         assert resolved(2, 3) == 5
+        assert inspect.signature(resolved) == inspect.signature(adder())
 
     @pytest.mark.asyncio
-    async def test_resolves_async_sut(self):
+    async def test_wraps_returned_async_callable(self):
         @sut
-        async def async_adder(x: int, y: int) -> int:
-            await asyncio.sleep(0.001)
-            return x + y
+        def async_adder():
+            async def run(x: int, y: int) -> int:
+                await asyncio.sleep(0.001)
+                return x + y
+
+            return run
 
         resolver = ResourceResolver(get_registry())
         resolved = await resolver.resolve("async_adder")
-
-        assert callable(resolved)
-        result = await resolved(2, 3)
-        assert result == 5
+        assert await resolved(2, 3) == 5
 
     @pytest.mark.asyncio
-    async def test_resolves_class_sut(self):
-        @sut
-        class Multiplier:
-            def __init__(self):
-                self.factor = 3
+    async def test_wraps_returned_instance_method_in_place(self):
+        class Pipeline:
+            def __init__(self) -> None:
+                self.factor = 4
 
-            def __call__(self, x: int) -> int:
+            def run(self, x: int) -> int:
                 return x * self.factor
 
-        resolver = ResourceResolver(get_registry())
-        resolved = await resolver.resolve("multiplier")
+        @sut(method="run")
+        def pipeline():
+            return Pipeline()
 
-        assert callable(resolved)
-        assert resolved(4) == 12
+        resolver = ResourceResolver(get_registry())
+        resolved = await resolver.resolve("pipeline")
+
+        assert isinstance(resolved, Pipeline)
+        assert resolved.factor == 4
+        assert resolved.run(3) == 12
 
     @pytest.mark.asyncio
-    async def test_session_scope_shared(self):
-        instance_count = 0
-
+    async def test_raises_on_none_return(self):
         @sut
-        class SharedInstance:
-            def __init__(self):
-                nonlocal instance_count
-                instance_count += 1
-
-            def __call__(self) -> int:
-                return instance_count
+        def bad_sut():
+            return None
 
         resolver = ResourceResolver(get_registry())
+        with pytest.raises(RuntimeError, match="Hook on_resolve failed"):
+            await resolver.resolve("bad_sut")
 
-        # Resolve twice - should return same instance
-        result1 = await resolver.resolve("shared_instance")
-        result2 = await resolver.resolve("shared_instance")
+    @pytest.mark.asyncio
+    async def test_raises_when_method_missing_for_non_callable_instance(self):
+        class NoRun:
+            value = 1
 
-        # Factory called once due to session scope
-        assert instance_count == 1
-        assert result1 is result2
+        @sut(method="run")
+        def no_run():
+            return NoRun()
+
+        resolver = ResourceResolver(get_registry())
+        with pytest.raises(RuntimeError, match="resolved to unsupported type"):
+            await resolver.resolve("no_run")
+
+    @pytest.mark.asyncio
+    async def test_validate_cases_applies_to_resolved_callable_signature(self):
+        cases = [Case(sut_input_values={"x": 1, "y": 2})]
+
+        @sut(validate_cases=cases)
+        def adder():
+            def run(x: int, y: int) -> int:
+                return x + y
+
+            return run
+
+        resolver = ResourceResolver(get_registry())
+        resolved = await resolver.resolve("adder")
+
+        assert resolved(2, 3) == 5
+
+    @pytest.mark.asyncio
+    async def test_validate_cases_raises_on_invalid_case(self):
+        cases = [Case(sut_input_values={"x": "not-an-int"})]
+
+        @sut(validate_cases=cases)
+        def increment():
+            def run(x: int) -> int:
+                return x + 1
+
+            return run
+
+        resolver = ResourceResolver(get_registry())
+        with pytest.raises(RuntimeError, match="Hook on_resolve failed") as exc:
+            await resolver.resolve("increment")
+
+        assert isinstance(exc.value.__cause__, ValidationError)
+
+    @pytest.mark.asyncio
+    async def test_validate_cases_targets_instance_method_signature(self):
+        class Pipeline:
+            def run(self, x: int) -> int:
+                return x * 2
+
+        cases = [Case(sut_input_values={"x": 7})]
+
+        @sut(method="run", validate_cases=cases)
+        def pipeline():
+            return Pipeline()
+
+        resolver = ResourceResolver(get_registry())
+        resolved = await resolver.resolve("pipeline")
+
+        assert resolved.run(3) == 6
 
 
 class TestSutTracing:
-    """Tests for SUT tracing functionality."""
-
     @pytest.mark.asyncio
-    async def test_sync_sut_creates_span(self, tmp_path):
-        import json
-
+    async def test_callable_sut_creates_span(self):
         @sut
-        def traced_sut(x: int) -> int:
-            return x * 2
+        def traced_sut():
+            def run(x: int) -> int:
+                return x * 2
+
+            return run
 
         resolver = ResourceResolver(get_registry())
         resolved = await resolver.resolve("traced_sut")
@@ -177,102 +219,39 @@ class TestSutTracing:
         from merit.tracing.lifecycle import _exporter
 
         assert _exporter is not None
-        output = _exporter.output_path
-        lines = output.read_text().strip().splitlines()
-        assert len(lines) >= 1
-
+        lines = _exporter.output_path.read_text().strip().splitlines()
         span_names = [json.loads(line)["name"] for line in lines]
         assert "sut.traced_sut" in span_names
 
     @pytest.mark.asyncio
-    async def test_async_sut_creates_span(self, tmp_path):
-        import json
+    async def test_instance_method_sut_creates_span(self):
+        class Service:
+            def run(self, value: str) -> str:
+                return f"ok:{value}"
 
-        @sut
-        async def async_traced(x: int) -> int:
-            await asyncio.sleep(0.001)
-            return x * 2
+        @sut(method="run")
+        def traced_service():
+            return Service()
 
         resolver = ResourceResolver(get_registry())
-        resolved = await resolver.resolve("async_traced")
-        await resolved(5)
+        resolved = await resolver.resolve("traced_service")
+        assert resolved.run("hello") == "ok:hello"
 
         from merit.tracing.lifecycle import _exporter
 
         assert _exporter is not None
-        output = _exporter.output_path
-        lines = output.read_text().strip().splitlines()
-        assert len(lines) >= 1
-
+        lines = _exporter.output_path.read_text().strip().splitlines()
         span_names = [json.loads(line)["name"] for line in lines]
-        assert "sut.async_traced" in span_names
+        assert "sut.traced_service" in span_names
 
     @pytest.mark.asyncio
-    async def test_class_sut_creates_span(self, tmp_path):
-        import json
-
+    async def test_sut_spans_have_merit_attributes(self):
         @sut
-        class TracedPipeline:
-            def __call__(self, query: str) -> str:
-                return f"Result: {query}"
+        def my_test_function():
+            def run(x: int) -> int:
+                return x
 
-        resolver = ResourceResolver(get_registry())
-        resolved = await resolver.resolve("traced_pipeline")
-        resolved("test query")
-
-        from merit.tracing.lifecycle import _exporter
-
-        assert _exporter is not None
-        output = _exporter.output_path
-        lines = output.read_text().strip().splitlines()
-        assert len(lines) >= 1
-
-        span_names = [json.loads(line)["name"] for line in lines]
-        assert "sut.traced_pipeline" in span_names
-
-
-class TestSnakeCaseConversion:
-    """Tests for CamelCase to snake_case conversion."""
-
-    def test_simple_camel_case(self):
-        @sut
-        class MyAgent:
-            def __call__(self) -> str:
-                return "result"
-
-        assert "my_agent" in get_registry()
-
-    def test_consecutive_caps(self):
-        @sut
-        class HTTPClient:
-            def __call__(self) -> str:
-                return "result"
-
-        assert "http_client" in get_registry()
-
-    def test_already_snake_case(self):
-        @sut
-        def already_snake() -> str:
-            return "result"
-
-        assert "already_snake" in get_registry()
-
-    def test_single_word(self):
-        @sut
-        class Agent:
-            def __call__(self) -> str:
-                return "result"
-
-        assert "agent" in get_registry()
-
-    @pytest.mark.asyncio
-    async def test_sut_spans_have_merit_attribute(self):
-        """Verify that SUT spans have the merit.sut attribute set."""
-        import json
-
-        @sut
-        def my_test_function(x: int) -> int:
-            return x
+            return run
 
         resolver = ResourceResolver(get_registry())
         resolved = await resolver.resolve("my_test_function")
@@ -285,12 +264,11 @@ class TestSnakeCaseConversion:
 
         span = None
         for line in lines:
-            s = json.loads(line)
-            if s["name"] == "sut.my_test_function":
-                span = s
+            parsed = json.loads(line)
+            if parsed["name"] == "sut.my_test_function":
+                span = parsed
                 break
 
-        assert span is not None, "SUT span not found"
-        attributes = span["attributes"]
-        assert attributes.get("merit.sut") is True
-        assert attributes.get("merit.sut.name") == "my_test_function"
+        assert span is not None
+        assert span["attributes"].get("merit.sut") is True
+        assert span["attributes"].get("merit.sut.name") == "my_test_function"

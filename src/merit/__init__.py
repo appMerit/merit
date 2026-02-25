@@ -6,14 +6,16 @@ from .predicates import Predicate, PredicateResult, predicate
 from .reports import Reporter, reporter
 from .testing import (
     Case,
+    CaseGroup,
     fail,
+    iter_case_groups,
     iter_cases,
     parametrize,
     repeat,
     resource,
+    run_inline,
     skip,
     tag,
-    validate_cases_for_sut,
     xfail,
 )
 from .testing.sut import sut
@@ -23,10 +25,12 @@ from .tracing import TraceContext, init_tracing, trace_step
 __all__ = [
     # Core testing
     "Case",
+    "CaseGroup",
+    "iter_case_groups",
     "iter_cases",
-    "validate_cases_for_sut",
     "parametrize",
     "repeat",
+    "run_inline",
     "tag",
     "resource",
     "skip",

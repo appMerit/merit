@@ -16,6 +16,9 @@ class NullReporter(Reporter):
     async def on_collection_complete(self, items) -> None:
         pass
 
+    async def on_test_start(self, item) -> None:
+        pass
+
     async def on_test_complete(self, execution) -> None:
         pass
 
