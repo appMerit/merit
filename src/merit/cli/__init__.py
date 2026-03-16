@@ -15,6 +15,7 @@ from uuid import UUID
 
 from rich.console import Console
 
+from merit.analysis.cli import register_analysis_subparser, run_analysis_command
 from merit.config import MeritConfig, load_config
 from merit.reports import Reporter, resolve_reporters
 from merit.storage.sqlite.migrations import MigrationRunner
@@ -53,6 +54,10 @@ def main() -> None:
 
     if args.command == "db":
         exit_code = _run_db_command(args, config)
+        raise SystemExit(exit_code)
+
+    if args.command == "analyze":
+        exit_code = asyncio.run(run_analysis_command(args))
         raise SystemExit(exit_code)
 
     parser.print_help()
@@ -156,6 +161,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     for p in [db_parser, *db_subparsers.choices.values()]:
         p.add_argument("--db-path", type=str, help="Path to the Merit SQLite database")
+
+    register_analysis_subparser(subparsers)
 
     return parser
 
